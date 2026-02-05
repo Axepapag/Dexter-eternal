@@ -53,6 +53,8 @@ from core.utils import extract_json
 from core.trained_trm_loader import load_all_trms, get_tool_trm, get_memory_trm
 from core.tool_trm_gateway import ToolTRMGateway, ToolRequest, ContextChannel, get_gateway
 from core.trm_online_trainer import init_online_trainers, get_online_trainer
+from core.tracing import init_tracer
+from core.instrumentation import EventLoopLagMonitor, InstrumentationSettings, maybe_enable_asyncio_debug
 import threading
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -350,6 +352,10 @@ class Dexter:
         
         # Initialize Core Systems
         self.config = self._load_json(self._config_path)
+        # Lightweight tracing/instrumentation (safe defaults; enabled via config/env).
+        init_tracer(self.config)
+        self._instrumentation = InstrumentationSettings.from_config(self.config)
+        self._loop_lag_monitor = EventLoopLagMonitor(self._instrumentation)
         self._apply_max_training()
         self.conversation_cfg = self._load_conversation_cfg(self.config)
         self.bootstrap_cfg = self.config.get("bootstrap", {}) or {}
@@ -2526,6 +2532,9 @@ class Dexter:
     async def startup(self, initial_intent: str = None):
         """Boot Dexter and optionally set an initial goal."""
         self._run_bootstrap()
+        # Must be called from within a running event loop.
+        maybe_enable_asyncio_debug(self.config)
+        self._loop_lag_monitor.start()
         if initial_intent:
             self._print_internal("System", f"Preset Intent: {initial_intent}")
             self.state["intent"] = initial_intent
@@ -2565,6 +2574,10 @@ class Dexter:
                 self._big_brain_worker(),
             )
         finally:
+            try:
+                await self._loop_lag_monitor.stop()
+            except Exception:
+                pass
             # Best-effort shutdown of background pipelines.
             try:
                 await self.memory_ingestor.stop()
