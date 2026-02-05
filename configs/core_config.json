@@ -47,7 +47,7 @@
   "llm_slots": {
     "orchestrator": {
       "provider_name": "ollama",
-      "model": "gemini-3-pro-preview:latest",
+      "model": "minimax-m2:cloud",
       "_comment": "Orchestrator must respond fast; keep a tight timeout and fall back to NVIDIA if Ollama Cloud is unavailable.",
       "provider_overrides": {
         "timeout_sec": 8

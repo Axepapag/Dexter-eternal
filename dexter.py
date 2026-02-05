@@ -56,7 +56,7 @@ from core.memory_db_writer import MemoryDBWriter
 from core.persistent_bundle import PersistentArtifactBundle
 from core.utils import extract_json
 from core.trained_trm_loader import load_all_trms, get_tool_trm, get_memory_trm
-from core.tool_trm_gateway import ToolTRMGateway, ToolRequest, ContextChannel, get_gateway
+from core.tool_trm_gateway import ToolTRMGateway, ToolRequest, ContextChannel, get_gateway, ToolResult, ExecutionMetadata
 from core.trm_online_trainer import init_online_trainers, get_online_trainer
 from core.tracing import init_tracer
 from core.instrumentation import EventLoopLagMonitor, InstrumentationSettings, maybe_enable_asyncio_debug
@@ -556,6 +556,7 @@ class Dexter:
         self.evolution = EvolutionEngine(self.repo_root, self.config)
         self.context_bundler = ContextBundler(self.repo_root, self.config)
         self.context_bundles = []
+        self._plan_task: Optional[asyncio.Task] = None
         exec_cfg = self.config.get("executor", {}) or {}
         self.async_executor = AsyncToolExecutor(
             max_workers=int(exec_cfg.get("max_workers", 20)),
@@ -2249,196 +2250,229 @@ class Dexter:
         return result.result
 
     async def _action_worker(self):
-        """Processes the current Plan via Tool TRM Gateway - the central execution layer."""
+        """Processes the current Plan via Tool TRM Gateway without blocking on execution."""
         while self.running:
-            if self.state["plan"]:
-                steps = self.state["plan"].get("steps", [])
-                active_idx = self.state["active_step"]
+            plan = self.state.get("plan") or {}
+            steps = plan.get("steps", [])
+            active_idx = int(self.state.get("active_step", 0) or 0)
 
-                if active_idx < len(steps):
-                    current_task = steps[active_idx]["task"]
-                    self._print_internal("System", f"Working: {current_task}")
+            if not steps:
+                await asyncio.sleep(1)
+                continue
 
-                    # ══════════════════════════════════════════════════════════════
-                    # EXECUTE VIA TOOL TRM GATEWAY
-                    # The gateway handles: skill selection, tool calling, forging,
-                    # dependency installation, monitoring, and learning
-                    # ══════════════════════════════════════════════════════════════
-                    request = ToolRequest(
-                        intent=current_task,
-                        context={
-                            "state_intent": self.state.get("intent", ""),
-                            "step_index": active_idx,
-                            "total_steps": len(steps),
-                        },
-                        last_error=self.state.get("last_tool_error"),
-                    )
-                    
-                    gateway_result = await self.tool_gateway.execute(request)
-                    
-                    # Extract execution details for logging
-                    # Map ToolResult attributes to expected names
-                    skill_id = gateway_result.metadata.trm_prediction or gateway_result.tool_used or "unknown"
-                    skill_conf = gateway_result.metadata.trm_confidence
-                    tool_name = gateway_result.tool_used
-                    arguments = gateway_result.arguments_used or {}
-                    result = {"ok": gateway_result.ok, "result": gateway_result.result, "error": gateway_result.error}
-                    call_source = gateway_result.metadata.source
-                    tool_conf = gateway_result.metadata.trm_confidence
-                    call_info = {"name": tool_name, "arguments": arguments}
-                    
-                    self._print_internal("System", f"Selected Skill: {skill_id}")
-                    if tool_name:
-                        self._print_internal("System", f"Executed: {tool_name} -> {'OK' if result.get('ok') else 'FAILED'}")
-                    
-                    # Log execution
-                    if self.training_log_cfg.get("enabled", True):
-                        extra = {
-                            "gateway_source": gateway_result.metadata.source,
-                            "gateway_forged": gateway_result.skill_created is not None,
-                        }
-                        enq_ok = enqueue_tool_call(
-                            path=self.training_log_path,
-                            intent=self.state.get("intent"),
-                            task=current_task,
-                            skill_id=skill_id,
-                            tool_name=tool_name,
-                            arguments=arguments,
-                            result=result,
-                            call_source=call_source,
-                            skill_confidence=skill_conf,
-                            tool_confidence=tool_conf,
-                            extra=extra,
-                        )
-                        if not enq_ok:
-                            asyncio.create_task(
-                                asyncio.to_thread(
-                                    log_tool_call,
-                                    path=self.training_log_path,
-                                    intent=self.state.get("intent"),
-                                    task=current_task,
-                                    skill_id=skill_id,
-                                    tool_name=tool_name,
-                                    arguments=arguments,
-                                    result=result,
-                                    call_source=call_source,
-                                    skill_confidence=skill_conf,
-                                    tool_confidence=tool_conf,
-                                    extra=extra,
-                                )
-                            )
-                    
-                    # Handle Result via Reasoning Engine
-                    context_for_eval = await self._build_context_payload(current_task)
-                    decision = await self.reasoning.evaluate_step(
-                        active_idx,
-                        result,
-                        context_bundle=context_for_eval,
-                    )
-
-                    if self.experience_log_cfg.get("enabled", False):
-                        plan_snapshot = self.state.get("plan") if isinstance(self.state.get("plan"), dict) else {}
-                        extra_exp = {
-                            "call_source": call_source,
-                            "tool_confidence": tool_conf,
-                            "skill_confidence": skill_conf,
-                            "template_id": plan_snapshot.get("template_id"),
-                            "template_source": plan_snapshot.get("template_source"),
-                        }
-                        enq_ok = enqueue_experience(
-                            path=self.experience_log_path,
-                            intent=self.state.get("intent"),
-                            step_index=active_idx,
-                            task=current_task,
-                            skill_id=skill_id,
-                            tool_name=tool_name,
-                            arguments=arguments,
-                            result=result,
-                            decision=decision,
-                            plan=plan_snapshot,
-                            extra=extra_exp,
-                        )
-                        if not enq_ok:
-                            asyncio.create_task(
-                                asyncio.to_thread(
-                                    log_experience,
-                                    path=self.experience_log_path,
-                                    intent=self.state.get("intent"),
-                                    step_index=active_idx,
-                                    task=current_task,
-                                    skill_id=skill_id,
-                                    tool_name=tool_name,
-                                    arguments=arguments,
-                                    result=result,
-                                    decision=decision,
-                                    plan=plan_snapshot,
-                                    extra=extra_exp,
-                                )
-                            )
-
-                    # Log to History for Pattern Mining
-                    try:
-                        self.bucket_manager.enqueue(
-                            bucket_name="history",
-                            event_type="history",
-                            payload={
-                                "intent": self.state.get("intent"),
-                                "step_index": active_idx,
-                                "task": current_task,
-                                "skill_id": skill_id,
-                                "tool_call": call_info if skill_id != "unknown" else {},
-                                "result": result,
-                                "decision": decision,
-                            },
-                            source="history",
-                            metadata={"via": "action_worker"},
-                        )
-                    except: pass
-
-                    if decision == "CONTINUE":
-                        self.evolution.log_success(current_task, skill_id)
-                        self.state["active_step"] += 1
-                        self._print_internal("System", f"Step {active_idx + 1} complete.")
-                    elif decision == "RE-PLAN":
-                        self._print_internal("System", "Encountered wall. Re-thinking...")
-                        new_plan = await self.reasoning.re_plan(result.get("error"), self.state)
-                        self.state["plan"] = new_plan
-                        self.state["active_step"] = 0
-                        try:
-                            await self.context_curator.stage_structured_artifact(
-                                source="reasoning_trm",
-                                artifact_type="plan",
-                                payload={
-                                    "goal": new_plan.get("goal"),
-                                    "steps": [s.get("task") for s in (new_plan.get("steps") or [])][:12],
-                                },
-                                confidence=0.7,
-                                priority=6,
-                                metadata={"event": "replan"},
-                            )
-                        except Exception:
-                            pass
-                    elif decision == "FINISH":
-                        self.evolution.log_success(current_task, skill_id)
-                        self._print_internal("System", "Goal achieved early.")
-                        self.state["plan"] = {}
-                        self.state["intent"] = "None"
-                        try:
-                            await self.rolling_context.set_current_task("")
-                        except Exception:
-                            pass
-                else:
-                    # Plan finished
-                    self._print_internal("System", f"Objective '{self.state['intent']}' accomplished.")
-                    self._speak_system(f"Jeffrey, I have successfully accomplished the task: {self.state['intent']}.")
+            if active_idx >= len(steps):
+                self._print_internal("System", f"Objective '{self.state.get('intent')}' accomplished.")
+                self._speak_system(f"Jeffrey, I have successfully accomplished the task: {self.state.get('intent')}.")
+                async with self.state_lock:
                     self.state["intent"] = "None"
                     self.state["plan"] = {}
-                    try:
-                        await self.rolling_context.set_current_task("")
-                    except Exception:
-                        pass
-            
-            await asyncio.sleep(2)
+                try:
+                    await self.rolling_context.set_current_task("")
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+                continue
+
+            if self._plan_task and not self._plan_task.done():
+                await asyncio.sleep(0.5)
+                continue
+
+            current_task = steps[active_idx]["task"]
+            self._print_internal("System", f"Working: {current_task}")
+
+            request = ToolRequest(
+                intent=current_task,
+                context={
+                    "state_intent": self.state.get("intent", ""),
+                    "step_index": active_idx,
+                    "total_steps": len(steps),
+                },
+                last_error=self.state.get("last_tool_error"),
+            )
+
+            self._plan_task = asyncio.create_task(
+                self._execute_plan_step(current_task, request, active_idx, len(steps))
+            )
+            await asyncio.sleep(0.5)
+
+    async def _execute_plan_step(
+        self,
+        current_task: str,
+        request: ToolRequest,
+        active_idx: int,
+        total_steps: int,
+    ) -> None:
+        try:
+            gateway_result = await self.tool_gateway.execute(request)
+        except Exception as exc:
+            gateway_result = ToolResult(
+                ok=False,
+                result=None,
+                error=str(exc),
+                tool_used=None,
+                arguments_used=request.arguments or {},
+                metadata=ExecutionMetadata(),
+            )
+        finally:
+            self._plan_task = None
+
+        await self._process_plan_result(gateway_result, current_task, active_idx, total_steps)
+
+    async def _process_plan_result(
+        self,
+        gateway_result: ToolResult,
+        current_task: str,
+        active_idx: int,
+        total_steps: int,
+    ) -> None:
+        skill_id = gateway_result.metadata.trm_prediction or gateway_result.tool_used or "unknown"
+        skill_conf = gateway_result.metadata.trm_confidence
+        tool_name = gateway_result.tool_used or "unknown"
+        arguments = gateway_result.arguments_used or {}
+        result_data = {"ok": gateway_result.ok, "result": gateway_result.result, "error": gateway_result.error}
+        call_source = gateway_result.metadata.source
+        tool_conf = gateway_result.metadata.trm_confidence or 0.0
+        call_info = {"name": tool_name, "arguments": arguments}
+
+        self._print_internal("System", f"Selected Skill: {skill_id}")
+        if tool_name:
+            self._print_internal("System", f"Executed: {tool_name} -> {'OK' if result_data.get('ok') else 'FAILED'}")
+
+        if self.training_log_cfg.get("enabled", True):
+            extra = {
+                "gateway_source": gateway_result.metadata.source,
+                "gateway_forged": gateway_result.metadata.skill_forged,
+            }
+            enq_ok = enqueue_tool_call(
+                path=self.training_log_path,
+                intent=self.state.get("intent"),
+                task=current_task,
+                skill_id=skill_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result_data,
+                call_source=call_source,
+                skill_confidence=skill_conf,
+                tool_confidence=tool_conf,
+                extra=extra,
+            )
+            if not enq_ok:
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        log_tool_call,
+                        path=self.training_log_path,
+                        intent=self.state.get("intent"),
+                        task=current_task,
+                        skill_id=skill_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=result_data,
+                        call_source=call_source,
+                        skill_confidence=skill_conf,
+                        tool_confidence=tool_conf,
+                        extra=extra,
+                    )
+                )
+
+        context_for_eval = await self._build_context_payload(current_task)
+        decision = await self.reasoning.evaluate_step(
+            active_idx,
+            result_data,
+            context_bundle=context_for_eval,
+        )
+
+        if self.experience_log_cfg.get("enabled", False):
+            plan_snapshot = self.state.get("plan") if isinstance(self.state.get("plan"), dict) else {}
+            extra_exp = {
+                "call_source": call_source,
+                "tool_confidence": tool_conf,
+                "skill_confidence": skill_conf,
+                "template_id": plan_snapshot.get("template_id"),
+                "template_source": plan_snapshot.get("template_source"),
+            }
+            enq_ok = enqueue_experience(
+                path=self.experience_log_path,
+                intent=self.state.get("intent"),
+                step_index=active_idx,
+                task=current_task,
+                skill_id=skill_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result_data,
+                decision=decision,
+                plan=plan_snapshot,
+                extra=extra_exp,
+            )
+            if not enq_ok:
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        log_experience,
+                        path=self.experience_log_path,
+                        intent=self.state.get("intent"),
+                        step_index=active_idx,
+                        task=current_task,
+                        skill_id=skill_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=result_data,
+                        decision=decision,
+                        plan=plan_snapshot,
+                        extra=extra_exp,
+                    )
+                )
+
+        try:
+            self.bucket_manager.enqueue(
+                bucket_name="history",
+                event_type="history",
+                payload={
+                    "intent": self.state.get("intent"),
+                    "step_index": active_idx,
+                    "task": current_task,
+                    "skill_id": skill_id,
+                    "tool_call": call_info if skill_id != "unknown" else {},
+                    "result": result_data,
+                    "decision": decision,
+                },
+                source="history",
+                metadata={"via": "action_worker"},
+            )
+        except Exception:
+            pass
+
+        async with self.state_lock:
+            if decision == "CONTINUE":
+                self.evolution.log_success(current_task, skill_id)
+                self.state["active_step"] = active_idx + 1
+                self._print_internal("System", f"Step {active_idx + 1} complete.")
+            elif decision == "RE-PLAN":
+                self._print_internal("System", "Encountered wall. Re-thinking...")
+                new_plan = await self.reasoning.re_plan(result_data.get("error"), self.state)
+                self.state["plan"] = new_plan
+                self.state["active_step"] = 0
+                try:
+                    await self.context_curator.stage_structured_artifact(
+                        source="reasoning_trm",
+                        artifact_type="plan",
+                        payload={
+                            "goal": new_plan.get("goal"),
+                            "steps": [s.get("task") for s in (new_plan.get("steps") or [])][:12],
+                        },
+                        confidence=0.7,
+                        priority=6,
+                        metadata={"event": "replan"},
+                    )
+                except Exception:
+                    pass
+            elif decision == "FINISH":
+                self.evolution.log_success(current_task, skill_id)
+                self._print_internal("System", "Goal achieved early.")
+                self.state["plan"] = {}
+                self.state["intent"] = "None"
+                try:
+                    await self.rolling_context.set_current_task("")
+                except Exception:
+                    pass
 
     async def _autonomy_worker(self):
         """
