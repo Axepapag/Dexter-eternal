@@ -146,6 +146,85 @@ _STREAM_ONLY_PREFIXES = [
     "DEBUG:", "TRACE:", "INFO:", "WARNING:", "ERROR:",
 ]
 
+# --- Minimal terminal UI helpers (for runtime model picking) ---
+def _clear_screen() -> None:
+    try:
+        os.system("cls" if os.name == "nt" else "clear")
+    except Exception:
+        return
+
+
+def _interactive_select(title: str, items: List[str], start_index: int = 0) -> Optional[int]:
+    """
+    Very small TUI: arrow up/down + Enter to select, Esc to cancel.
+
+    This is intentionally synchronous; call it via `asyncio.to_thread(...)` so it
+    never blocks the event loop.
+    """
+    if not items:
+        return None
+    idx = max(0, min(int(start_index or 0), len(items) - 1))
+
+    def _render() -> None:
+        _clear_screen()
+        print(title)
+        print("-" * min(80, max(10, len(title))))
+        print("Up/Down to move, Enter to select, Esc to cancel\n")
+        for i, line in enumerate(items):
+            prefix = " > " if i == idx else "   "
+            print(prefix + line)
+
+    def _get_key() -> str:
+        if os.name == "nt":
+            try:
+                import msvcrt  # type: ignore
+
+                ch = msvcrt.getwch()
+                if ch in ("\x00", "\xe0"):  # special key prefix
+                    ch2 = msvcrt.getwch()
+                    return f"{ch}{ch2}"
+                return ch
+            except Exception:
+                return ""
+        # POSIX fallback: raw mode for arrows (best-effort)
+        try:
+            import termios  # type: ignore
+            import tty  # type: ignore
+
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    # Possibly an escape sequence (arrow)
+                    ch += sys.stdin.read(2)
+                return ch
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:
+            return ""
+
+    _render()
+    while True:
+        k = _get_key()
+        if not k:
+            continue
+        if k in ("\r", "\n"):
+            return idx
+        if k in ("\x1b", "\x1b\x1b", "\x1b\x1b\x1b"):  # Esc
+            return None
+
+        # Windows arrow keys: \xe0H up, \xe0P down
+        if k in ("\x00H", "\xe0H", "\x1b[A"):
+            idx = (idx - 1) % len(items)
+            _render()
+            continue
+        if k in ("\x00P", "\xe0P", "\x1b[B"):
+            idx = (idx + 1) % len(items)
+            _render()
+            continue
+
 # Prefixes that should show in conversation terminal
 _CONVERSATION_PREFIXES = [
     "[Dexter][Jeffrey]", "[Jeffrey]", ">>> ",
@@ -436,6 +515,7 @@ class Dexter:
         # only update context and never trigger the orchestrator LLM to "notice" and respond.
         self._tool_result_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=int(os.getenv("DEXTER_TOOL_RESULT_QUEUE", "500") or "500"))
         self._tool_result_reactor_task: Optional[asyncio.Task] = None
+        self._think_tank_reload_task: Optional[asyncio.Task] = None
 
         # Bucket-based ingestion + single DB writer (append-only, non-blocking producers).
         mb_cfg = self.config.get("memory_buckets", {}) or {}
@@ -829,6 +909,163 @@ class Dexter:
         self.bootstrap_cfg = self.config.get("bootstrap", {}) or {}
         mem_cfg = self.config.get("memory_trm", {}) or {}
         self.memory_trm_enabled = bool(mem_cfg.get("enabled", True))
+
+    def _provider_model_pairs(self) -> List[tuple[str, str]]:
+        pairs: List[tuple[str, str]] = []
+        providers = self.config.get("providers", {}) or {}
+        if not isinstance(providers, dict):
+            return pairs
+        for pname, pcfg in providers.items():
+            if not isinstance(pcfg, dict):
+                continue
+            models: List[str] = []
+            m0 = pcfg.get("model")
+            if m0:
+                models.append(str(m0))
+            extra = pcfg.get("models") or []
+            if isinstance(extra, list):
+                for m in extra:
+                    if m is None:
+                        continue
+                    ms = str(m)
+                    if ms and ms not in models:
+                        models.append(ms)
+            for m in models:
+                pairs.append((str(pname), str(m)))
+        return pairs
+
+    def _set_llm_slot(self, slot_name: str, provider_name: str, model: str) -> None:
+        slot = (slot_name or "").strip() or "orchestrator"
+        pn = (provider_name or "").strip()
+        mm = (model or "").strip()
+        if not pn or not mm:
+            return
+        self.config.setdefault("llm_slots", {})
+        if not isinstance(self.config["llm_slots"], dict):
+            self.config["llm_slots"] = {}
+        slot_cfg = self.config["llm_slots"].get(slot, {}) or {}
+        if not isinstance(slot_cfg, dict):
+            slot_cfg = {}
+        slot_cfg["provider_name"] = pn
+        slot_cfg["model"] = mm
+        self.config["llm_slots"][slot] = slot_cfg
+
+    def _ui_pick_orchestrator_model(self) -> None:
+        pairs = self._provider_model_pairs()
+        if not pairs:
+            print("[ModelPicker] No providers/models found in config['providers'].", flush=True)
+            return
+        chat_slot = str(self.conversation_cfg.get("chat_slot", "orchestrator") or "orchestrator")
+        slot_cfg = (self.config.get("llm_slots", {}) or {}).get(chat_slot, {}) or {}
+        cur_p = str(slot_cfg.get("provider_name") or "")
+        cur_m = str(slot_cfg.get("model") or "")
+
+        labels: List[str] = []
+        start_idx = 0
+        for i, (p, m) in enumerate(pairs):
+            labels.append(f"{p}: {m}")
+            if cur_p and cur_m and p == cur_p and m == cur_m:
+                start_idx = i
+
+        sel = _interactive_select(f"Select Orchestrator Model (slot={chat_slot})", labels, start_index=start_idx)
+        if sel is None:
+            return
+        provider_name, model = pairs[int(sel)]
+        self._set_llm_slot(chat_slot, provider_name, model)
+        self._persist_config()
+        self._refresh_runtime_config()
+        print(f"[ModelPicker] Orchestrator slot '{chat_slot}' -> {provider_name}/{model}", flush=True)
+
+    def _think_tank_slots_from_config(self) -> List[Dict[str, Any]]:
+        cfg = self.config.get("llm_think_tank", {}) or {}
+        slots = cfg.get("slots") or []
+        if isinstance(slots, list):
+            out = []
+            for s in slots:
+                if isinstance(s, dict):
+                    out.append(s)
+            return out
+        return []
+
+    def _ui_pick_think_tank_model(self) -> Optional[tuple[str, str]]:
+        slots = self._think_tank_slots_from_config()
+        if not slots:
+            print("[ModelPicker] No think tank slots found in config['llm_think_tank']['slots'].", flush=True)
+            return None
+
+        slot_labels: List[str] = []
+        for s in slots:
+            name = str(s.get("name") or "unnamed")
+            enabled = bool(s.get("enabled", False))
+            provider = str(s.get("provider_name") or "")
+            model = str(s.get("model") or "")
+            tag = "ENABLED" if enabled else "disabled"
+            if provider:
+                slot_labels.append(f"{name} [{tag}] ({provider}/{model})")
+            else:
+                slot_labels.append(f"{name} [{tag}] (model={model})")
+
+        sel_slot = _interactive_select("Select Think Tank Slot", slot_labels, start_index=0)
+        if sel_slot is None:
+            return None
+        chosen = slots[int(sel_slot)]
+        name = str(chosen.get("name") or "unnamed")
+        provider = str(chosen.get("provider_name") or "")
+        cur_model = str(chosen.get("model") or "")
+
+        # If the slot uses a provider_name, pick from that provider's model list (mirrors config['providers']).
+        # Otherwise (raw URL mode), only allow selecting the configured model string.
+        if not provider:
+            one = [cur_model or "(empty model)"]
+            _ = _interactive_select(f"Select Model For Think Tank Slot '{name}'", one, start_index=0)
+            return (name, cur_model)
+
+        pairs = [pm for pm in self._provider_model_pairs() if pm[0] == provider]
+        if not pairs:
+            one = [cur_model or "(empty model)"]
+            _ = _interactive_select(f"Select Model For Think Tank Slot '{name}' ({provider})", one, start_index=0)
+            return (name, cur_model)
+
+        labels = [f"{p}: {m}" for (p, m) in pairs]
+        start_idx = 0
+        for i, (_, m) in enumerate(pairs):
+            if cur_model and m == cur_model:
+                start_idx = i
+                break
+        sel_model = _interactive_select(f"Select Model For Think Tank Slot '{name}' ({provider})", labels, start_index=start_idx)
+        if sel_model is None:
+            return None
+        _, model = pairs[int(sel_model)]
+        return (name, model)
+
+    def _apply_think_tank_model(self, slot_name: str, model: str) -> bool:
+        slots = self._think_tank_slots_from_config()
+        changed = False
+        for s in slots:
+            if str(s.get("name") or "") == str(slot_name or ""):
+                s["model"] = str(model or "")
+                changed = True
+                break
+        if not changed:
+            return False
+        # Write back into config (preserving order and other fields).
+        self.config.setdefault("llm_think_tank", {})
+        if not isinstance(self.config["llm_think_tank"], dict):
+            self.config["llm_think_tank"] = {}
+        self.config["llm_think_tank"]["slots"] = slots
+        self._persist_config()
+        return True
+
+    async def _restart_think_tank(self) -> None:
+        try:
+            await self.llm_think_tank.stop()
+        except Exception:
+            pass
+        try:
+            self.llm_think_tank = LLMThinkTank(self.config)
+            await self.llm_think_tank.start()
+        except Exception:
+            pass
 
     async def _append_working_memory(self, payload: Dict[str, Any]) -> None:
         if not self.working_memory_enabled:
@@ -2713,6 +2950,21 @@ class Dexter:
                 # Run blocking input in a thread so the event loop stays responsive.
                 user_msg = await asyncio.to_thread(input, "[Jeffrey] > ")
                 if not user_msg:
+                    continue
+
+                cmd = user_msg.strip()
+                if cmd.lower() == "/m":
+                    # Interactive picker runs in the input thread; never block the event loop.
+                    await asyncio.to_thread(self._ui_pick_orchestrator_model)
+                    continue
+                if cmd.lower() == "/mtank":
+                    picked = await asyncio.to_thread(self._ui_pick_think_tank_model)
+                    if picked:
+                        slot_name, model = picked
+                        if self._apply_think_tank_model(slot_name, model):
+                            # Restart to apply new model/provider config into active advisors.
+                            if self._think_tank_reload_task is None or self._think_tank_reload_task.done():
+                                self._think_tank_reload_task = asyncio.create_task(self._restart_think_tank())
                     continue
                 task = asyncio.create_task(self._process_user_message(user_msg))
                 self._track_user_task(task)
