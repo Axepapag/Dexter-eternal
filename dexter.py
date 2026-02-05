@@ -557,6 +557,7 @@ class Dexter:
         self.context_bundler = ContextBundler(self.repo_root, self.config)
         self.context_bundles = []
         self._plan_task: Optional[asyncio.Task] = None
+        self._stream_results = False
         exec_cfg = self.config.get("executor", {}) or {}
         self.async_executor = AsyncToolExecutor(
             max_workers=int(exec_cfg.get("max_workers", 20)),
@@ -954,7 +955,7 @@ class Dexter:
     def _ui_pick_orchestrator_model(self) -> None:
         pairs = self._provider_model_pairs()
         if not pairs:
-            print("[ModelPicker] No providers/models found in config['providers'].", flush=True)
+            self._print_internal("System", "[ModelPicker] No providers/models found in config['providers'].")
             return
         chat_slot = str(self.conversation_cfg.get("chat_slot", "orchestrator") or "orchestrator")
         slot_cfg = (self.config.get("llm_slots", {}) or {}).get(chat_slot, {}) or {}
@@ -975,7 +976,10 @@ class Dexter:
         self._set_llm_slot(chat_slot, provider_name, model)
         self._persist_config()
         self._refresh_runtime_config()
-        print(f"[ModelPicker] Orchestrator slot '{chat_slot}' -> {provider_name}/{model}", flush=True)
+        self._print_internal(
+            "System",
+            f"[ModelPicker] Orchestrator slot '{chat_slot}' -> {provider_name}/{model}",
+        )
 
     def _think_tank_slots_from_config(self) -> List[Dict[str, Any]]:
         cfg = self.config.get("llm_think_tank", {}) or {}
@@ -991,7 +995,10 @@ class Dexter:
     def _ui_pick_think_tank_model(self) -> Optional[tuple[str, str]]:
         slots = self._think_tank_slots_from_config()
         if not slots:
-            print("[ModelPicker] No think tank slots found in config['llm_think_tank']['slots'].", flush=True)
+            self._print_internal(
+                "System",
+                "[ModelPicker] No think tank slots found in config['llm_think_tank']['slots'].",
+            )
             return None
 
         slot_labels: List[str] = []
@@ -1595,6 +1602,9 @@ class Dexter:
 
         return "\n".join(parts)
 
+    def _streaming_status(self) -> str:
+        return "on" if self._stream_results else "off"
+
     def _ensure_brain_db(self) -> None:
         """Ensure the brain database exists and schema is installed."""
         try:
@@ -1965,11 +1975,11 @@ class Dexter:
             f"forged={exec_summary.get('skill_forged', False)})",
         )
 
-        # Full, untruncated payload for the Activity Stream terminal
-        try:
-            self._print_internal("System", "Full tool result bundle:\n" + json.dumps(upstream_bundle, ensure_ascii=False, default=str))
-        except Exception:
-            pass
+        if self._stream_results:
+            try:
+                self._print_internal("System", "Full tool result bundle:\n" + json.dumps(upstream_bundle, ensure_ascii=False, default=str))
+            except Exception:
+                pass
         
         # If skill was forged, announce it
         if exec_summary.get("skill_forged"):
@@ -2004,6 +2014,9 @@ class Dexter:
             )
         except Exception:
             pass
+
+        if self._stream_results:
+            self._print_internal("System", f"[ResultPreview] {preview or '(empty)'}")
 
         # Compact summary used for retrieval/aux pipelines.
         result_summary = f"{tool} -> {'SUCCESS' if success else 'FAIL'}"
@@ -2999,6 +3012,19 @@ class Dexter:
                             # Restart to apply new model/provider config into active advisors.
                             if self._think_tank_reload_task is None or self._think_tank_reload_task.done():
                                 self._think_tank_reload_task = asyncio.create_task(self._restart_think_tank())
+                    continue
+                if cmd.lower().startswith("/results"):
+                    parts = cmd.split(None, 1)
+                    if len(parts) == 1:
+                        status = self._streaming_status()
+                        self._print_user(f"/results [on|off] (currently {status})")
+                    else:
+                        arg = parts[1].strip().lower()
+                        if arg in ("on", "off"):
+                            self._stream_results = (arg == "on")
+                            self._print_user(f"/results {arg} (streaming {'enabled' if self._stream_results else 'disabled'})")
+                        else:
+                            self._print_user("Usage: /results on|off")
                     continue
                 if cmd.lower() == "/rreset":
                     try:
