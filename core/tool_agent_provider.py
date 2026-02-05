@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
+from core.instrumentation import InstrumentationSettings
+from core.tracing import get_tracer
+
 # Optional imports for specific providers
 try:
     import boto3
@@ -132,6 +135,8 @@ class AsyncAIProvider:
         max_tokens: Optional[int] = None,
     ) -> ChatResponse:
         started = time.perf_counter()
+        tracer = get_tracer()
+        inst = InstrumentationSettings.from_config({})
         timeout_sec = float(self.config.get("timeout_sec", 60))
 
         async def _run_with_timeout(coro: asyncio.Future) -> ChatResponse:
@@ -152,45 +157,33 @@ class AsyncAIProvider:
 
         ptype = self.provider_type.lower()
         
-        if ptype == "ollama":
-            resp = await _run_with_timeout(self._chat_ollama(messages, model, temperature, max_tokens))
+        with tracer.span("llm.chat", provider=self.name, model=model, provider_type=ptype):
+            if ptype == "ollama":
+                resp = await _run_with_timeout(self._chat_ollama(messages, model, temperature, max_tokens))
+            elif ptype == "ollama_cloud":
+                resp = await _run_with_timeout(self._chat_ollama_cloud(messages, model, temperature, max_tokens))
+            elif ptype in ("google_gemini", "vertex_maas", "google_vertex"):
+                 # "vertex_maas" often uses the same requests structure as Vertex AI or a raw endpoint. 
+                 # For simpler integration, if it provides an absolute URL, we treat it as a REST call.
+                 if "googleapis.com" in self.config.get("base_url", ""):
+                     resp = await _run_with_timeout(self._chat_vertex_rest(messages, model, temperature, max_tokens))
+                 else:
+                     resp = await _run_with_timeout(self._chat_gemini(messages, model, temperature, max_tokens))
+            elif ptype == "aws_bedrock":
+                resp = await _run_with_timeout(self._chat_aws_bedrock(messages, model, temperature, max_tokens))
+            else:
+                # Default to OpenAI Compatible (NVIDIA, Groq, DeepSeek, LocalAI, etc.)
+                resp = await _run_with_timeout(self._chat_openai_compatible(messages, model, temperature, max_tokens))
+
             elapsed = time.perf_counter() - started
             extra = f" err={resp.content[:120]!r}" if not resp.success else ""
             print(f"[LLM] {self.name}/{model} ({ptype}) done in {elapsed:.2f}s (ok={resp.success}){extra}", flush=True)
+            if getattr(tracer, "enabled", False) and inst.enabled and (elapsed * 1000.0) >= float(inst.slow_llm_warn_ms):
+                try:
+                    print(f"TRACE: slow llm {self.name}/{model} ({ptype}) took {elapsed * 1000.0:.0f}ms", flush=True)
+                except Exception:
+                    pass
             return resp
-        elif ptype == "ollama_cloud":
-            resp = await _run_with_timeout(self._chat_ollama_cloud(messages, model, temperature, max_tokens))
-            elapsed = time.perf_counter() - started
-            extra = f" err={resp.content[:120]!r}" if not resp.success else ""
-            print(f"[LLM] {self.name}/{model} ({ptype}) done in {elapsed:.2f}s (ok={resp.success}){extra}", flush=True)
-            return resp
-        elif ptype in ("google_gemini", "vertex_maas", "google_vertex"):
-             # "vertex_maas" often uses the same requests structure as Vertex AI or a raw endpoint. 
-             # For simpler integration, if it provides an absolute URL, we treat it as a REST call.
-             if "googleapis.com" in self.config.get("base_url", ""):
-                 resp = await _run_with_timeout(self._chat_vertex_rest(messages, model, temperature, max_tokens))
-                 elapsed = time.perf_counter() - started
-                 extra = f" err={resp.content[:120]!r}" if not resp.success else ""
-                 print(f"[LLM] {self.name}/{model} ({ptype}) done in {elapsed:.2f}s (ok={resp.success}){extra}", flush=True)
-                 return resp
-             resp = await _run_with_timeout(self._chat_gemini(messages, model, temperature, max_tokens))
-             elapsed = time.perf_counter() - started
-             extra = f" err={resp.content[:120]!r}" if not resp.success else ""
-             print(f"[LLM] {self.name}/{model} ({ptype}) done in {elapsed:.2f}s (ok={resp.success}){extra}", flush=True)
-             return resp
-        elif ptype == "aws_bedrock":
-            resp = await _run_with_timeout(self._chat_aws_bedrock(messages, model, temperature, max_tokens))
-            elapsed = time.perf_counter() - started
-            extra = f" err={resp.content[:120]!r}" if not resp.success else ""
-            print(f"[LLM] {self.name}/{model} ({ptype}) done in {elapsed:.2f}s (ok={resp.success}){extra}", flush=True)
-            return resp
-        
-        # Default to OpenAI Compatible (NVIDIA, Groq, DeepSeek, LocalAI, etc.)
-        resp = await _run_with_timeout(self._chat_openai_compatible(messages, model, temperature, max_tokens))
-        elapsed = time.perf_counter() - started
-        extra = f" err={resp.content[:120]!r}" if not resp.success else ""
-        print(f"[LLM] {self.name}/{model} (openai_compatible) done in {elapsed:.2f}s (ok={resp.success}){extra}", flush=True)
-        return resp
 
     async def _chat_openai_compatible(
         self,

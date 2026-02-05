@@ -8,6 +8,8 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
+from core.tracing import get_tracer
+
 app = FastAPI(title="Dexter Gliksbot Cerebral API")
 
 # Enable CORS for the Next.js dashboard
@@ -68,6 +70,24 @@ manager = ConnectionManager()
 @app.get("/status")
 def get_status():
     return {"status": "online", "identity": "Dexter Gliksbot", "user": "Jeffrey Gliksman"}
+
+@app.get("/trace/recent")
+def get_trace_recent(limit: int = 200):
+    tracer = get_tracer()
+    recs = []
+    try:
+        recs = [r.to_dict() for r in tracer.recent(limit=limit)]
+    except Exception:
+        recs = []
+    return {"enabled": bool(getattr(tracer, "enabled", False)), "records": recs}
+
+@app.get("/trace/summary")
+def get_trace_summary():
+    tracer = get_tracer()
+    try:
+        return tracer.summarize()
+    except Exception:
+        return {"enabled": False}
 
 @app.get("/triples")
 def get_triples(limit: int = 50):
