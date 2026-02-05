@@ -431,6 +431,12 @@ class Dexter:
         self.think_tank_bundle = PersistentArtifactBundle("think_tank")
         self.llm_think_tank = LLMThinkTank(self.config)
 
+        # Tool result reactions:
+        # Tool execution happens asynchronously via Forge; without a reactor, tool results
+        # only update context and never trigger the orchestrator LLM to "notice" and respond.
+        self._tool_result_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=int(os.getenv("DEXTER_TOOL_RESULT_QUEUE", "500") or "500"))
+        self._tool_result_reactor_task: Optional[asyncio.Task] = None
+
         # Bucket-based ingestion + single DB writer (append-only, non-blocking producers).
         mb_cfg = self.config.get("memory_buckets", {}) or {}
         mb_dir = mb_cfg.get("dir") or "data/buckets"
@@ -1761,10 +1767,12 @@ class Dexter:
         except Exception:
             pass
 
-        # TRIGGER: Tool result triggers staged context injection
+        # Compact summary used for retrieval/aux pipelines.
         result_summary = f"{tool} -> {'SUCCESS' if success else 'FAIL'}"
+
+        # Enqueue for orchestrator reaction. The reactor will trigger injection + LLM call.
         try:
-            await self._trigger_orchestrator_injection("tool_result", result_summary)
+            self._tool_result_queue.put_nowait(upstream_bundle)
         except Exception:
             pass
 
@@ -2440,6 +2448,98 @@ class Dexter:
         except Exception:
             pass
 
+    async def _tool_result_reactor(self) -> None:
+        """
+        Background worker that turns tool results into orchestrator reactions.
+
+        Requirements:
+        - Tool results MUST trigger an orchestrator LLM call, otherwise Dexter won't react.
+        - Injection must include the tool result + the reason it was called (original intent).
+
+        Strategy:
+        - Debounce bursts of tool results and react once per batch.
+        - Trigger staged-context injection so results become available to the orchestrator.
+        - Call orchestrator with an internal event message that instructs it to respond
+          to the user and/or schedule next tasks.
+        """
+        debounce_s = float(os.getenv("DEXTER_TOOL_RESULT_DEBOUNCE_SEC", "0.05") or "0.05")
+        max_batch = int(os.getenv("DEXTER_TOOL_RESULT_BATCH", "20") or "20")
+
+        while self.running:
+            try:
+                first = await self._tool_result_queue.get()
+            except Exception:
+                await asyncio.sleep(0.05)
+                continue
+
+            batch: List[dict] = [first]
+            try:
+                # Small debounce window to coalesce multi-step tool bursts.
+                await asyncio.sleep(max(0.0, debounce_s))
+                while len(batch) < max_batch:
+                    try:
+                        batch.append(self._tool_result_queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+                    except Exception:
+                        break
+            except Exception:
+                pass
+
+            # Build a compact summary for the injection trigger and the internal event.
+            summaries: List[str] = []
+            for b in batch:
+                try:
+                    t = b.get("tool") or "unknown"
+                    ok = bool(b.get("success", False))
+                    intent = str(b.get("original_intent") or "").strip()
+                    if intent:
+                        intent = _compact_text(intent, max_words=30, max_chars=160)
+                        summaries.append(f"{t}={'OK' if ok else 'FAIL'} intent={intent!r}")
+                    else:
+                        summaries.append(f"{t}={'OK' if ok else 'FAIL'}")
+                except Exception:
+                    continue
+            trigger_content = " | ".join(summaries[:5]) if summaries else "tool_result"
+
+            injection_text = ""
+            injection_payload = None
+            try:
+                injection_text = await self._trigger_orchestrator_injection("tool_result", trigger_content)
+                injection_payload = self._last_injection_payload
+            except Exception:
+                injection_text = ""
+                injection_payload = None
+
+            # Snapshot chat history for context, without adding a synthetic "user" turn.
+            try:
+                async with self.user_msg_lock:
+                    chat_snapshot = list(self.chat_history)
+            except Exception:
+                chat_snapshot = list(self.chat_history)
+
+            # The orchestrator must react: explain what happened and decide what to do next.
+            internal_event_msg = (
+                "INTERNAL EVENT: One or more tool calls just completed.\n"
+                "Use the injected context (tool results + metadata) to:\n"
+                "1) Explain outcome to Jeffrey briefly.\n"
+                "2) If follow-up actions are needed, add them to internal.tasks.\n"
+                "3) If the tool failed, propose a recovery and schedule it.\n"
+                f"Tool batch: {trigger_content}"
+            )
+
+            task = asyncio.create_task(
+                self._run_orchestrator_chat(
+                    user_msg=internal_event_msg,
+                    chat_history=chat_snapshot,
+                    context_injection=injection_text,
+                    msg_id=None,
+                    fast=True,
+                    injection_payload=injection_payload,
+                )
+            )
+            self._track_user_task(task)
+
         # Stage user input into orchestrator + think tank bundles (fire-and-forget).
         injection_task: Optional[asyncio.Task] = None
         try:
@@ -2632,6 +2732,8 @@ class Dexter:
         # Must be called from within a running event loop.
         maybe_enable_asyncio_debug(self.config)
         self._loop_lag_monitor.start()
+        if self._tool_result_reactor_task is None or self._tool_result_reactor_task.done():
+            self._tool_result_reactor_task = asyncio.create_task(self._tool_result_reactor())
         if initial_intent:
             self._print_internal("System", f"Preset Intent: {initial_intent}")
             self.state["intent"] = initial_intent
