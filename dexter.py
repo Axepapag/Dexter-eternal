@@ -67,10 +67,75 @@ import threading
 # ═══════════════════════════════════════════════════════════════════════════════
 
 STREAM_PORT = 19847  # Port for stream terminal connection
-_stream_clients = []
-_stream_lock = threading.Lock()
 _original_print = print
-_stream_queue = queue.Queue()
+
+
+class _StreamHub:
+    """
+    Non-blocking stream broadcaster.
+
+    The main runtime must never do blocking socket sends. We enqueue outbound
+    text and a dedicated thread pushes it to connected clients.
+    """
+
+    def __init__(self, max_queue: int = 5000):
+        self._clients: list[socket.socket] = []
+        self._lock = threading.Lock()
+        self._q: "queue.Queue[str | None]" = queue.Queue(maxsize=max(100, int(max_queue)))
+        self._running = True
+        self._t = threading.Thread(target=self._writer, name="dexter-stream-writer", daemon=True)
+        self._t.start()
+
+    def add_client(self, client: socket.socket) -> None:
+        try:
+            client.setblocking(True)
+        except Exception:
+            pass
+        with self._lock:
+            self._clients.append(client)
+
+    def broadcast(self, text: str) -> None:
+        if not text or not str(text).strip():
+            return
+        try:
+            self._q.put_nowait(str(text))
+        except queue.Full:
+            # Best-effort: drop rather than block the runtime.
+            return
+        except Exception:
+            return
+
+    def _writer(self) -> None:
+        while self._running:
+            try:
+                msg = self._q.get()
+            except Exception:
+                continue
+            if msg is None:
+                break
+            data = msg.encode("utf-8", errors="replace")
+            with self._lock:
+                clients = list(self._clients)
+            dead: list[socket.socket] = []
+            for client in clients:
+                try:
+                    client.sendall(data)
+                except Exception:
+                    dead.append(client)
+            if dead:
+                with self._lock:
+                    for c in dead:
+                        try:
+                            c.close()
+                        except Exception:
+                            pass
+                        try:
+                            self._clients.remove(c)
+                        except Exception:
+                            pass
+
+
+_STREAM_HUB = _StreamHub(max_queue=int(os.getenv("DEXTER_STREAM_QUEUE", "5000") or "5000"))
 
 # Prefixes that indicate system/internal messages (go to stream only)
 _STREAM_ONLY_PREFIXES = [
@@ -239,22 +304,10 @@ class StreamWriter:
 
 def _broadcast_to_stream(text):
     """Send text to all connected stream terminals."""
-    if not text.strip():
+    try:
+        _STREAM_HUB.broadcast(text)
+    except Exception:
         return
-    with _stream_lock:
-        dead_clients = []
-        for client in _stream_clients:
-            try:
-                client.sendall((text).encode('utf-8', errors='replace'))
-            except Exception:
-                dead_clients.append(client)
-        for c in dead_clients:
-            try:
-                c.close()
-            except Exception:
-                pass
-            if c in _stream_clients:
-                _stream_clients.remove(c)
 
 
 def _stream_server():
@@ -280,8 +333,13 @@ def _stream_server():
     _original_print(f"[Stream] Listening on port {STREAM_PORT}", flush=True)
     while True:
         client, addr = server.accept()
-        with _stream_lock:
-            _stream_clients.append(client)
+        try:
+            _STREAM_HUB.add_client(client)
+        except Exception:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def _run_stream_terminal():

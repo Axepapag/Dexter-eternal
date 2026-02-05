@@ -417,6 +417,13 @@ class StagedContextBundle:
         timestamp: Optional[float] = None,
         metadata: Dict = None,
     ):
+        # Precompute an approximate token estimate outside the lock.
+        # (Keeps trimming fast and avoids heavy JSON dumps on the event loop.)
+        try:
+            tok_est = max(1, len(str(payload)) // 4)
+        except Exception:
+            tok_est = 1
+
         async with self._lock:
             if source not in self._staged:
                 self._staged[source] = []
@@ -433,6 +440,7 @@ class StagedContextBundle:
                 "priority": int(priority),
                 "timestamp": ts,
                 "metadata": metadata or {},
+                "_tokens": tok_est,
             }
 
             # Deterministic merge: replace only if strictly better/newer.
@@ -452,7 +460,8 @@ class StagedContextBundle:
 
             self._total_staged += 1
             self._trim_to_budget(source)
-            snapshot = copy.deepcopy(self._staged)
+            # Shallow snapshot of lists for persistence; avoids deepcopy under lock.
+            snapshot = {k: list(v) for k, v in self._staged.items()}
         self._schedule_save_staged(snapshot)
 
     def _trim_to_budget(self, source: str):
@@ -465,7 +474,7 @@ class StagedContextBundle:
         total_tokens = 0
         kept: List[Dict[str, Any]] = []
         for item in items:
-            item_tokens = self._estimate_tokens(item)
+            item_tokens = int(item.get("_tokens") or self._estimate_tokens(item))
             if total_tokens + item_tokens <= budget:
                 kept.append(item)
                 total_tokens += item_tokens
@@ -504,11 +513,16 @@ class StagedContextBundle:
                 if asyncio.iscoroutinefunction(callback):
                     await callback(injection)
                 else:
-                    callback(injection)
+                    await asyncio.to_thread(callback, injection)
             except Exception as e:
                 print(f"[StagedBundle] Inject callback error: {e}", flush=True)
 
-        self._schedule_save_staged(copy.deepcopy(self._staged))
+        # Save a shallow snapshot; avoid deepcopy on the event loop.
+        try:
+            snapshot = {k: list(v) for k, v in self._staged.items()}
+        except Exception:
+            snapshot = {}
+        self._schedule_save_staged(snapshot)
         return injection
 
     def _save_staged(self):

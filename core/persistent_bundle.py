@@ -62,23 +62,30 @@ class PersistentArtifactBundle:
         timestamp: Optional[float] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ):
+        # Precompute ID and an approximate token estimate outside the lock.
+        # (Avoids heavy JSON dumps and deepcopy on the event loop.)
+        ts = float(timestamp if timestamp is not None else time.time())
+        conf = float(confidence if confidence is not None else 0.7)
+        art_id = self._artifact_id(source, artifact_type, payload)
+        try:
+            tok_est = max(1, len(str(payload)) // 4)
+        except Exception:
+            tok_est = 1
+
+        artifact = {
+            "id": art_id,
+            "type": str(artifact_type),
+            "payload": payload,
+            "confidence": conf,
+            "priority": int(priority),
+            "timestamp": ts,
+            "metadata": metadata or {},
+            "_tokens": tok_est,
+        }
+
         async with self._lock:
             if source not in self._items:
                 self._items[source] = []
-
-            ts = float(timestamp if timestamp is not None else time.time())
-            conf = float(confidence if confidence is not None else 0.7)
-            art_id = self._artifact_id(source, artifact_type, payload)
-
-            artifact = {
-                "id": art_id,
-                "type": str(artifact_type),
-                "payload": payload,
-                "confidence": conf,
-                "priority": int(priority),
-                "timestamp": ts,
-                "metadata": metadata or {},
-            }
 
             items = self._items[source]
             replaced = False
@@ -95,8 +102,9 @@ class PersistentArtifactBundle:
 
             self._total_added += 1
             self._trim_to_budget(source)
-            snapshot = copy.deepcopy(self._items)
-        self._schedule_save(snapshot)
+            snapshot = {k: list(v) for k, v in self._items.items()}
+            total_added = int(self._total_added)
+        self._schedule_save(snapshot, total_added=total_added)
 
     async def merge_injection(self, injection: Dict[str, Any]):
         if not injection:
@@ -121,7 +129,7 @@ class PersistentArtifactBundle:
         total_tokens = 0
         kept: List[Dict[str, Any]] = []
         for item in items:
-            item_tokens = self._estimate_tokens(item)
+            item_tokens = int(item.get("_tokens") or self._estimate_tokens(item))
             if total_tokens + item_tokens <= budget:
                 kept.append(item)
                 total_tokens += item_tokens
@@ -180,13 +188,13 @@ class PersistentArtifactBundle:
         except Exception as exc:
             print(f"[PersistentBundle:{self.name}] Persist failed: {exc}", flush=True)
 
-    def _schedule_save(self, snapshot: Dict[str, Any]) -> None:
+    def _schedule_save(self, snapshot: Dict[str, Any], *, total_added: int) -> None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            self._write_snapshot(snapshot, self._total_added)
+            self._write_snapshot(snapshot, total_added)
             return
-        loop.create_task(self._save_async(snapshot, self._total_added))
+        loop.create_task(self._save_async(snapshot, total_added))
 
     def _load(self):
         if not self._bundle_path.exists():
