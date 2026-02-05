@@ -11,6 +11,8 @@ import traceback
 from typing import Any, Dict, Optional, Tuple
 
 from core.dependency_installer import extract_missing_module, install_for_missing_modules
+from core.instrumentation import InstrumentationSettings
+from core.tracing import get_tracer, trace_await
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +23,17 @@ _INSTALL_ATTEMPTED = set()
 _REGISTRY_CACHE: Optional[Dict[str, Tuple[str, str, Any]]] = None
 _REGISTRY_TS: float = 0.0
 _REGISTRY_TTL_SEC: float = 2.0
+_INST_CACHE: Optional[InstrumentationSettings] = None
+
+
+def _inst() -> InstrumentationSettings:
+    global _INST_CACHE
+    if _INST_CACHE is None:
+        try:
+            _INST_CACHE = InstrumentationSettings.from_config(_load_config())
+        except Exception:
+            _INST_CACHE = InstrumentationSettings(enabled=False)
+    return _INST_CACHE
 
 
 def _load_config() -> Dict[str, Any]:
@@ -104,7 +117,12 @@ async def _get_registry() -> Dict[str, Tuple[str, str, Any]]:
     now = time.monotonic()
     if _REGISTRY_CACHE is not None and (now - _REGISTRY_TS) < _REGISTRY_TTL_SEC:
         return _REGISTRY_CACHE
-    registry = await asyncio.to_thread(_build_registry)
+    settings = _inst()
+    registry = await trace_await(
+        asyncio.to_thread(_build_registry),
+        "tool.registry_build",
+        warn_ms=settings.slow_await_warn_ms if settings.enabled else None,
+    )
     _REGISTRY_CACHE = registry
     _REGISTRY_TS = now
     return registry
@@ -220,12 +238,15 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
         return {"ok": False, "error": f"Tool '{tool_name}' not found"}
 
     started = time.monotonic()
+    tracer = get_tracer()
+    settings = _inst()
     try:
         arguments = _normalize_arguments(func, arguments)
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
-        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-            result = await _run_tool(func, arguments)
+        with tracer.span("tool.execute", tool=tool_name):
+            with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+                result = await _run_tool(func, arguments)
 
         captured_stdout = stdout_buf.getvalue()
         captured_stderr = stderr_buf.getvalue()
@@ -244,7 +265,7 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
 
-        return {
+        out = {
             "ok": True,
             "result": result,
             "stdout": captured_stdout,
@@ -252,6 +273,13 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
             "success": True,
             "duration_ms": int((time.monotonic() - started) * 1000),
         }
+
+        if settings.enabled and out.get("duration_ms", 0) >= int(settings.slow_tool_warn_ms):
+            try:
+                print(f"TRACE: slow tool {tool_name} took {out['duration_ms']}ms", flush=True)
+            except Exception:
+                pass
+        return out
     except Exception as e:
         missing = extract_missing_module(e)
         if missing and _attempt_install(missing):
@@ -279,6 +307,11 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
             "traceback": traceback.format_exc(),
             "duration_ms": int((time.monotonic() - started) * 1000),
         }
+        if settings.enabled and error_info.get("duration_ms", 0) >= int(settings.slow_tool_warn_ms):
+            try:
+                print(f"TRACE: slow tool {tool_name} (failed) took {error_info['duration_ms']}ms", flush=True)
+            except Exception:
+                pass
         # Extract code and context if it's a ToolError or similar
         if hasattr(e, "code"):
             error_info["code"] = e.code

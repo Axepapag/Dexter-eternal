@@ -53,6 +53,8 @@ import core.tool_executor as tool_executor
 from core.async_executor import AsyncToolExecutor
 from core.trained_trm_loader import get_tool_trm, ToolTRM
 from core.persistent_bundle import PersistentArtifactBundle
+from core.instrumentation import InstrumentationSettings
+from core.tracing import get_tracer, trace_await
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -404,6 +406,7 @@ class ToolTRMGateway:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        self._inst = InstrumentationSettings.from_config(config)
         self.gateway_cfg = config.get("tool_trm_gateway", {}) or {}
         self.tool_access_cfg = config.get("tool_access", {}) or {}
         
@@ -1216,6 +1219,7 @@ class ToolTRMGateway:
         max_retries = self._max_retries if self._auto_retry_enabled else 0
         last_error: Optional[str] = None
 
+        tracer = get_tracer()
         for attempt in range(max_retries + 1):
             selection_started = time.monotonic()
             meta = ExecutionMetadata()
@@ -1233,7 +1237,12 @@ class ToolTRMGateway:
             self._teacher_context.add_turn("dexter", attempt_input)
 
             # Ask the Forge (or TRM) to understand and structure the call
-            resolve_result = await self._resolve_via_teacher(attempt_input)
+            resolve_result = await trace_await(
+                self._resolve_via_teacher(attempt_input),
+                "gateway.resolve_via_teacher",
+                warn_ms=self._inst.slow_llm_warn_ms if self._inst.enabled else None,
+                attempt=attempt,
+            )
 
             # NOW parse the Teacher's structured output
             tool_name = resolve_result.get("tool")
@@ -1319,13 +1328,24 @@ class ToolTRMGateway:
                 # Execute the tool
                 exec_started = time.monotonic()
                 print(f"[Tool TRM Gateway] Executing: {tool_name}({args})", flush=True)
-                result = await self._executor.execute(tool_name, args)
+                with tracer.span("gateway.execute_tool", tool=tool_name):
+                    result = await trace_await(
+                        self._executor.execute(tool_name, args),
+                        "tool.execute_async",
+                        warn_ms=self._inst.slow_tool_warn_ms if self._inst.enabled else None,
+                        tool=tool_name,
+                    )
                 meta.execution_duration_ms = int((time.monotonic() - exec_started) * 1000)
 
                 # Check for missing dependencies
                 if not result.get("ok") and "ModuleNotFoundError" in str(result.get("error", "")):
                     dep_start = time.monotonic()
-                    dep_result = await self._handle_missing_dependency(result, tool_name, args)
+                    dep_result = await trace_await(
+                        self._handle_missing_dependency(result, tool_name, args),
+                        "gateway.handle_missing_dependency",
+                        warn_ms=self._inst.slow_await_warn_ms if self._inst.enabled else None,
+                        tool=tool_name,
+                    )
                     if dep_result:
                         meta.deps_installed = dep_result.get("installed", [])
                         meta.deps_install_duration_ms = int((time.monotonic() - dep_start) * 1000)
