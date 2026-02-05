@@ -2966,6 +2966,44 @@ class Dexter:
                             if self._think_tank_reload_task is None or self._think_tank_reload_task.done():
                                 self._think_tank_reload_task = asyncio.create_task(self._restart_think_tank())
                     continue
+                if cmd.lower() == "/rreset":
+                    try:
+                        if self.trained_reasoning_trm and self.trained_reasoning_trm.is_ready():
+                            self.trained_reasoning_trm.reset_carry()
+                            self._print_internal("System", "[ReasoningTRM] Carry reset")
+                        else:
+                            self._print_internal("System", "[ReasoningTRM] Not available")
+                    except Exception:
+                        pass
+                    continue
+                if cmd.lower().startswith("/r "):
+                    prompt = cmd[3:].strip()
+                    if not prompt:
+                        continue
+                    if not self.trained_reasoning_trm or not self.trained_reasoning_trm.is_ready():
+                        self._print_internal("System", "[ReasoningTRM] Not available")
+                        continue
+                    try:
+                        res = await asyncio.to_thread(self.trained_reasoning_trm.reason, prompt, {"origin": "direct_chat"})
+                    except Exception as exc:
+                        self._print_internal("System", f"[ReasoningTRM] Error: {exc}")
+                        continue
+                    steps = res.get("reasoning_steps") or []
+                    concl = res.get("conclusion")
+                    conf = res.get("confidence")
+                    if steps:
+                        body = "\n".join([f"- {s}" for s in steps[:12]])
+                        extra = "\n... (truncated)" if len(steps) > 12 else ""
+                        self._print_user(f"[ReasoningTRM]\n{body}{extra}")
+                    elif concl:
+                        self._print_user(f"[ReasoningTRM] {concl}")
+                    else:
+                        self._print_user("[ReasoningTRM] (no output)")
+                    try:
+                        self._print_internal("System", f"[ReasoningTRM] confidence={float(conf or 0.0):.2f} carry_steps={res.get('carry_steps')}")
+                    except Exception:
+                        pass
+                    continue
                 task = asyncio.create_task(self._process_user_message(user_msg))
                 self._track_user_task(task)
 
