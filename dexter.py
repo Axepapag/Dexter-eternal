@@ -227,18 +227,18 @@ def _interactive_select(title: str, items: List[str], start_index: int = 0) -> O
 
 # Prefixes that should show in conversation terminal
 _CONVERSATION_PREFIXES = [
-    "[Dexter][Jeffrey]", "[Jeffrey]", ">>> ",
+    "[Dexter][Jeffrey]", "[Dexter][System]", "[Jeffrey]", ">>> ",
 ]
 
 # System messages to filter out of conversation (even if they have [Dexter])
 _CONVERSATION_FILTER = [
-    "[Dexter][System] Working:", "[Dexter][System] Calling:", "[Dexter][System] Step",
-    "[Dexter][System] Selected Skill:", "[Dexter][System] Task received:",
-    "[Dexter][System] Preset Intent:", "[Dexter][System] Starting", "[Dexter][System] Waking",
-    "[Dexter][System] Rolling", "[Dexter][System] Tool Result:", "[Dexter][System] Staged context",
-    "[Dexter][System] Executed:", "[Dexter][System] Goal achieved early.",
-    "[Dexter][System] Online TRM Trainer started",
-    "[Dexter][System] ✨ New skill", "[Dexter][System] Received from",
+    "[Dexter] Working:", "[Dexter] Calling:", "[Dexter] Step",
+    "[Dexter] Selected Skill:", "[Dexter] Task received:",
+    "[Dexter] Preset Intent:", "[Dexter] Starting", "[Dexter] Waking",
+    "[Dexter] Rolling", "[Dexter] Tool Result:", "[Dexter] Staged context",
+    "[Dexter] Executed:", "[Dexter] Goal achieved early.",
+    "[Dexter] Online TRM Trainer started",
+    "[Dexter] ✨ New skill", "[Dexter] Received from",
 ]
 
 def _compact_text(text: str, max_words: int = 40, max_chars: int = 240) -> str:
