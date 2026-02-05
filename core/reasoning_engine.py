@@ -18,7 +18,7 @@ import core.tool_agent_provider as agent_provider
 from core.api import broadcast_thought
 from core.plan_templates import PlanTemplateLibrary
 from core.trm_plan_policy import TRMPlanPolicy
-from core.training_logger import log_plan_event
+from core.training_logger import enqueue_plan_event, log_plan_event
 
 class ReasoningEngine:
     def __init__(self, config: Dict[str, Any]):
@@ -180,7 +180,7 @@ If the user requests an action, proceed without confirmation.
                 plan_log_path = self.plan_log_cfg.get("path", "dexter_TRMs/datasets/runtime/plan_events.jsonl")
                 if not os.path.isabs(plan_log_path):
                     plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
-                log_plan_event(
+                enq_ok = enqueue_plan_event(
                     path=plan_log_path,
                     goal=user_goal,
                     plan=template_plan,
@@ -188,6 +188,18 @@ If the user requests an action, proceed without confirmation.
                     template_id=template_plan.get("template_id"),
                     confidence=template_plan.get("template_confidence"),
                 )
+                if not enq_ok:
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            log_plan_event,
+                            path=plan_log_path,
+                            goal=user_goal,
+                            plan=template_plan,
+                            source=template_plan.get("template_source") or "template",
+                            template_id=template_plan.get("template_id"),
+                            confidence=template_plan.get("template_confidence"),
+                        )
+                    )
             self.current_plan = template_plan
             return template_plan
         print(f"[Reasoning] Calculating plan using {slot} slot...", flush=True)
@@ -226,12 +238,22 @@ Return ONLY a valid JSON object:
                     plan_log_path = self.plan_log_cfg.get("path", "dexter_TRMs/datasets/runtime/plan_events.jsonl")
                     if not os.path.isabs(plan_log_path):
                         plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
-                    log_plan_event(
+                    enq_ok = enqueue_plan_event(
                         path=plan_log_path,
                         goal=user_goal,
                         plan=plan,
                         source="llm",
                     )
+                    if not enq_ok:
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                log_plan_event,
+                                path=plan_log_path,
+                                goal=user_goal,
+                                plan=plan,
+                                source="llm",
+                            )
+                        )
                 self.current_plan = plan
                 return plan
         
@@ -243,12 +265,22 @@ Return ONLY a valid JSON object:
             plan_log_path = self.plan_log_cfg.get("path", "dexter_TRMs/datasets/runtime/plan_events.jsonl")
             if not os.path.isabs(plan_log_path):
                 plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
-            log_plan_event(
+            enq_ok = enqueue_plan_event(
                 path=plan_log_path,
                 goal=user_goal,
                 plan=fallback,
                 source="fallback",
             )
+            if not enq_ok:
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        log_plan_event,
+                        path=plan_log_path,
+                        goal=user_goal,
+                        plan=fallback,
+                        source="fallback",
+                    )
+                )
         self.current_plan = fallback
         return fallback
 
@@ -325,7 +357,7 @@ Respond with exactly one word: CONTINUE, RE-PLAN, or FINISH.
                     plan_log_path = self.plan_log_cfg.get("path", "dexter_TRMs/datasets/runtime/plan_events.jsonl")
                     if not os.path.isabs(plan_log_path):
                         plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
-                    log_plan_event(
+                    enq_ok = enqueue_plan_event(
                         path=plan_log_path,
                         goal=template_plan.get("goal"),
                         plan=template_plan,
@@ -334,6 +366,19 @@ Respond with exactly one word: CONTINUE, RE-PLAN, or FINISH.
                         confidence=template_plan.get("template_confidence"),
                         extra={"event": "replan_template"},
                     )
+                    if not enq_ok:
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                log_plan_event,
+                                path=plan_log_path,
+                                goal=template_plan.get("goal"),
+                                plan=template_plan,
+                                source=template_plan.get("template_source") or "template",
+                                template_id=template_plan.get("template_id"),
+                                confidence=template_plan.get("template_confidence"),
+                                extra={"event": "replan_template"},
+                            )
+                        )
                 self.current_plan = template_plan
                 return template_plan
         provider, model = await self._get_brain_for_slot(slot)
@@ -358,13 +403,24 @@ The original plan hit a wall. Provide a NEW JSON plan to reach the goal.
                     plan_log_path = self.plan_log_cfg.get("path", "dexter_TRMs/datasets/runtime/plan_events.jsonl")
                     if not os.path.isabs(plan_log_path):
                         plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
-                    log_plan_event(
+                    enq_ok = enqueue_plan_event(
                         path=plan_log_path,
                         goal=new_plan.get("goal"),
                         plan=new_plan,
                         source="llm",
                         extra={"event": "replan_llm"},
                     )
+                    if not enq_ok:
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                log_plan_event,
+                                path=plan_log_path,
+                                goal=new_plan.get("goal"),
+                                plan=new_plan,
+                                source="llm",
+                                extra={"event": "replan_llm"},
+                            )
+                        )
                 self.current_plan = new_plan
                 return self.current_plan
         return self.current_plan

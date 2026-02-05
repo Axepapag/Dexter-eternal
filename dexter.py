@@ -36,7 +36,12 @@ from skills.memory_ops import _db_path as memory_db_path
 from core.bootstrap import run_trm_tool_pipeline
 from core.trm_tool_policy import TRMToolPolicy
 from core.rolling_metrics import RollingAccuracy
-from core.training_logger import log_tool_call, log_experience
+from core.training_logger import (
+    enqueue_experience,
+    enqueue_tool_call,
+    log_experience,
+    log_tool_call,
+)
 from core.toolbook_utils import build_tool_template
 from core.speaker import speak_out_loud
 from core.api import start_api_server, broadcast_thought
@@ -1989,7 +1994,7 @@ class Dexter:
                             "gateway_source": gateway_result.metadata.source,
                             "gateway_forged": gateway_result.skill_created is not None,
                         }
-                        log_tool_call(
+                        enq_ok = enqueue_tool_call(
                             path=self.training_log_path,
                             intent=self.state.get("intent"),
                             task=current_task,
@@ -2002,6 +2007,23 @@ class Dexter:
                             tool_confidence=tool_conf,
                             extra=extra,
                         )
+                        if not enq_ok:
+                            asyncio.create_task(
+                                asyncio.to_thread(
+                                    log_tool_call,
+                                    path=self.training_log_path,
+                                    intent=self.state.get("intent"),
+                                    task=current_task,
+                                    skill_id=skill_id,
+                                    tool_name=tool_name,
+                                    arguments=arguments,
+                                    result=result,
+                                    call_source=call_source,
+                                    skill_confidence=skill_conf,
+                                    tool_confidence=tool_conf,
+                                    extra=extra,
+                                )
+                            )
                     
                     # Handle Result via Reasoning Engine
                     context_for_eval = await self._build_context_payload(current_task)
@@ -2020,7 +2042,7 @@ class Dexter:
                             "template_id": plan_snapshot.get("template_id"),
                             "template_source": plan_snapshot.get("template_source"),
                         }
-                        log_experience(
+                        enq_ok = enqueue_experience(
                             path=self.experience_log_path,
                             intent=self.state.get("intent"),
                             step_index=active_idx,
@@ -2033,6 +2055,23 @@ class Dexter:
                             plan=plan_snapshot,
                             extra=extra_exp,
                         )
+                        if not enq_ok:
+                            asyncio.create_task(
+                                asyncio.to_thread(
+                                    log_experience,
+                                    path=self.experience_log_path,
+                                    intent=self.state.get("intent"),
+                                    step_index=active_idx,
+                                    task=current_task,
+                                    skill_id=skill_id,
+                                    tool_name=tool_name,
+                                    arguments=arguments,
+                                    result=result,
+                                    decision=decision,
+                                    plan=plan_snapshot,
+                                    extra=extra_exp,
+                                )
+                            )
 
                     # Log to History for Pattern Mining
                     try:

@@ -37,7 +37,7 @@ from core.plan_templates import PlanTemplateLibrary
 
 from core.trm_plan_policy import TRMPlanPolicy
 
-from core.training_logger import log_plan_event
+from core.training_logger import enqueue_plan_event, log_plan_event
 from core.api import broadcast_thought
 from core.utils import extract_json
 
@@ -422,21 +422,26 @@ If the action is destructive/irreversible, proceed without asking.
 
                     plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
 
-                log_plan_event(
-
+                enq_ok = enqueue_plan_event(
                     path=plan_log_path,
-
                     goal=user_goal,
-
                     plan=template_plan,
-
                     source=template_plan.get("template_source") or "template",
-
                     template_id=template_plan.get("template_id"),
-
                     confidence=template_plan.get("template_confidence"),
-
                 )
+                if not enq_ok:
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            log_plan_event,
+                            path=plan_log_path,
+                            goal=user_goal,
+                            plan=template_plan,
+                            source=template_plan.get("template_source") or "template",
+                            template_id=template_plan.get("template_id"),
+                            confidence=template_plan.get("template_confidence"),
+                        )
+                    )
 
             self.current_plan = template_plan
 
@@ -511,17 +516,22 @@ Return ONLY a valid JSON object:
 
                         plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
 
-                    log_plan_event(
-
+                    enq_ok = enqueue_plan_event(
                         path=plan_log_path,
-
                         goal=user_goal,
-
                         plan=plan,
-
                         source="llm",
-
                     )
+                    if not enq_ok:
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                log_plan_event,
+                                path=plan_log_path,
+                                goal=user_goal,
+                                plan=plan,
+                                source="llm",
+                            )
+                        )
 
                 self.current_plan = plan
 
@@ -545,17 +555,22 @@ Return ONLY a valid JSON object:
 
                 plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
 
-            log_plan_event(
-
+            enq_ok = enqueue_plan_event(
                 path=plan_log_path,
-
                 goal=user_goal,
-
                 plan=fallback,
-
                 source="fallback",
-
             )
+            if not enq_ok:
+                asyncio.create_task(
+                    asyncio.to_thread(
+                        log_plan_event,
+                        path=plan_log_path,
+                        goal=user_goal,
+                        plan=fallback,
+                        source="fallback",
+                    )
+                )
 
         self.current_plan = fallback
 
@@ -700,23 +715,28 @@ Respond with exactly one word: CONTINUE, RE-PLAN, or FINISH.
 
                         plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
 
-                    log_plan_event(
-
+                    enq_ok = enqueue_plan_event(
                         path=plan_log_path,
-
                         goal=template_plan.get("goal"),
-
                         plan=template_plan,
-
                         source=template_plan.get("template_source") or "template",
-
                         template_id=template_plan.get("template_id"),
-
                         confidence=template_plan.get("template_confidence"),
-
                         extra={"event": "replan_template"},
-
                     )
+                    if not enq_ok:
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                log_plan_event,
+                                path=plan_log_path,
+                                goal=template_plan.get("goal"),
+                                plan=template_plan,
+                                source=template_plan.get("template_source") or "template",
+                                template_id=template_plan.get("template_id"),
+                                confidence=template_plan.get("template_confidence"),
+                                extra={"event": "replan_template"},
+                            )
+                        )
 
                 self.current_plan = template_plan
 
@@ -762,19 +782,24 @@ The original plan hit a wall. Provide a NEW JSON plan to reach the goal.
 
                         plan_log_path = str(Path(__file__).resolve().parent.parent / plan_log_path)
 
-                    log_plan_event(
-
+                    enq_ok = enqueue_plan_event(
                         path=plan_log_path,
-
                         goal=new_plan.get("goal"),
-
                         plan=new_plan,
-
                         source="llm",
-
                         extra={"event": "replan_llm"},
-
                     )
+                    if not enq_ok:
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                log_plan_event,
+                                path=plan_log_path,
+                                goal=new_plan.get("goal"),
+                                plan=new_plan,
+                                source="llm",
+                                extra={"event": "replan_llm"},
+                            )
+                        )
 
                 self.current_plan = new_plan
 

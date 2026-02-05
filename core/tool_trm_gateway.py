@@ -1451,20 +1451,48 @@ class ToolTRMGateway:
         return fallback
     
     def _log_skill_creation(self, intent: str, tool_name: str, skill_id: Optional[str]):
-        """Log skill creation for TRM training on skill forging."""
+        """Log skill creation for TRM training on skill forging (non-blocking when possible)."""
+        record = {
+            "timestamp": time.time(),
+            "intent": intent,
+            "tool_created": tool_name,
+            "skill_id": skill_id,
+        }
         try:
-            log_path = BASE_DIR / "artifacts" / "trm_training" / "skill_creations.jsonl"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(log_path, "a", encoding="utf-8") as f:
-                record = {
-                    "timestamp": time.time(),
-                    "intent": intent,
-                    "tool_created": tool_name,
-                    "skill_id": skill_id,
-                }
-                f.write(json.dumps(record) + "\n")
+            log_path = str(BASE_DIR / "artifacts" / "trm_training" / "skill_creations.jsonl")
+        except Exception:
+            return
+
+        # Prefer async JSONL writer when enabled.
+        try:
+            from core.async_jsonl_writer import enqueue_jsonl
+
+            if enqueue_jsonl(log_path, record):
+                return
         except Exception:
             pass
+
+        def _write_sync() -> None:
+            try:
+                Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+            except Exception:
+                return
+
+        # Best-effort: offload to a thread if we have an event loop.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(asyncio.to_thread(_write_sync))
+            return
+        except Exception:
+            pass
+
+        # Fallback: sync write (rare; no loop).
+        try:
+            _write_sync()
+        except Exception:
+            return
     
     async def _ask_llm_teacher(
         self, 
@@ -1553,14 +1581,38 @@ Or:
             "trm_was_correct": trm_prediction == llm_decision,
         }
         
-        # 1. Log to training file (for batch training)
+        # 1. Log to training file (for batch training) - avoid blocking the event loop.
         try:
-            log_path = BASE_DIR / "artifacts" / "trm_training" / "teacher_decisions.jsonl"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            log_path = str(BASE_DIR / "artifacts" / "trm_training" / "teacher_decisions.jsonl")
         except Exception:
-            pass
+            log_path = ""
+
+        if log_path:
+            wrote = False
+            try:
+                from core.async_jsonl_writer import enqueue_jsonl
+
+                wrote = bool(enqueue_jsonl(log_path, record))
+            except Exception:
+                wrote = False
+
+            if not wrote:
+                def _write_sync() -> None:
+                    try:
+                        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                    except Exception:
+                        return
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(asyncio.to_thread(_write_sync))
+                except Exception:
+                    try:
+                        _write_sync()
+                    except Exception:
+                        pass
         
         # 2. Feed to online trainer for immediate learning
         trainer = _get_online_trainer()

@@ -93,7 +93,11 @@ class ResponseTank:
             except Exception:
                 pass
         if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=1.0)
+            # Never block the event loop on thread joins.
+            try:
+                await asyncio.to_thread(self._worker_thread.join, 1.0)
+            except Exception:
+                pass
     
     async def _process_messages(self):
         while self._running:
