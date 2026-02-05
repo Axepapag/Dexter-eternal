@@ -1,0 +1,272 @@
+{
+  "_comment": "=== MODEL CHOICES (edit these to change LLMs) ===",
+  
+  "models": {
+    "CLOUD_PRIMARY": "glm-4.7:cloud",
+    "TOOL_TEACHER": "devstral-small-2:24b-cloud",
+    "LOCAL_FAST": "qwen2.5:1.5b",
+    "LOCAL_REASONING": "deepseek-r1:1.5b",
+    "THINK_TANK": "kimi-k2.5:cloud",
+    "NEMOTRON_ULTRA": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+  },
+
+  "providers": {
+    "ollama_cloud": {
+      "provider_type": "ollama_cloud",
+      "api_key_env": "OLLAMA_API_KEY",
+      "base_url": "https://ollama.com",
+      "timeout_sec": 120,
+      "models": [
+        "glm-4.7:cloud",
+        "qwen3-coder:480b-cloud",
+        "deepseek-v3.2:cloud",
+        "kimi-k2.5:cloud",
+        "devstral-small-2:24b-cloud"
+      ]
+    },
+    "ollama": {
+      "provider_type": "ollama",
+      "base_url": "http://localhost:11434",
+      "models": [
+        "qwen2.5:1.5b",
+        "deepseek-r1:1.5b",
+        "qwen3-embedding:0.6b-fp16"
+      ]
+    },
+    "nvidia": {
+      "provider_type": "openai_compatible",
+      "api_key_env": "NVIDIA_API_KEY",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "timeout_sec": 45,
+      "models": [
+        "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+      ]
+    }
+  },
+
+  "llm_slots": {
+    "orchestrator": {
+      "provider_name": "ollama",
+      "model": "gemini-3-pro-preview:latest",
+      "_comment": "Orchestrator must respond fast; keep a tight timeout and fall back to NVIDIA if Ollama Cloud is unavailable.",
+      "provider_overrides": {
+        "timeout_sec": 8
+      },
+      "fallback_slots": ["orchestrator_backup"]
+    },
+    "orchestrator_backup": {
+      "provider_name": "nvidia",
+      "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    },
+    "forge": {
+      "provider_name": "ollama_cloud",
+      "model": "qwen3-coder:480b-cloud"
+    },
+    "memory": {
+      "provider_name": "nvidia",
+      "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    }
+  },
+
+  "_comment2": "=== SYSTEM CONFIG (less frequently changed) ===",
+
+  "bootstrap": {
+    "enabled": false,
+    "include_success": true,
+    "train_model": true,
+    "seq_len": 128,
+    "augmentations": 5,
+    "epochs": 50,
+    "batch_size": 16,
+    "lr": 0.0001
+  },
+  "memory_trm": {
+    "enabled": true
+  },
+  "max_training": {
+    "enabled": false,
+    "force_tool_trm": true
+  },
+  "executor": {
+    "max_workers": 20
+  },
+  "training_log": {
+    "path": "dexter_TRMs/datasets/runtime/tool_calls.jsonl",
+    "enabled": true
+  },
+  "experience_log": {
+    "path": "dexter_TRMs/datasets/runtime/experience.jsonl",
+    "enabled": true
+  },
+  "plan_log": {
+    "enabled": true,
+    "path": "dexter_TRMs/datasets/runtime/plan_events.jsonl"
+  },
+  "trm_tool_policy": {
+    "enabled": true,
+    "rolling_window": 200,
+    "min_samples": 20,
+    "use_accuracy_gate": true,
+    "accuracy_threshold": 0.8,
+    "auto_tune_enabled": true,
+    "target_accuracy": 0.85,
+    "target_hysteresis": 0.05,
+    "tune_step": 0.02,
+    "min_execute_threshold": 0.7,
+    "max_execute_threshold": 0.98,
+    "min_shadow_threshold": 0.4,
+    "max_shadow_threshold": 0.95,
+    "tune_every_n_updates": 20,
+    "model_path": "dexter_TRMs/models/tool_policy/trm_tool_policy.pt",
+    "vocab_path": "dexter_TRMs/tokenizer/tool_policy_vocab.json"
+  },
+  "trm_config": {
+    "confidence_threshold": 0.8
+  },
+  "trained_trms": {
+    "tool_enabled": true,
+    "memory_enabled": true,
+    "confidence_threshold": 0.5
+  },
+  "trm_root": "dexter_TRMs",
+  "big_brain": {
+    "enabled": true,
+    "sync_on_startup": false,
+    "sync_interval_sec": 3600
+  },
+  "self_evolution": {
+    "autonomy_enabled": true,
+    "proactive_interval": 300,
+    "force_forge_on_unknown": true,
+    "auto_repair_enabled": true,
+    "auto_repair_max_attempts": 3,
+    "auto_repair_backoff_sec": 2
+  },
+  "autonomy_loop": {
+    "_comment": "Self-directed objective loop. Runs only when user is idle and no plan is executing.",
+    "enabled": true,
+    "idle_seconds": 20,
+    "tick_seconds": 15,
+    "max_backlog": 8,
+    "persist_path": "data/autonomy_backlog.json",
+    "generate_when_empty": true,
+    "generation": {
+      "slot": "orchestrator",
+      "max_objectives": 5
+    }
+  },
+  "conversation": {
+    "require_explicit_plan": false,
+    "auto_plan": true,
+    "action_on_questions": false,
+    "action_confirmation_policy": "never",
+    "destructive_keywords": [
+      "delete",
+      "remove",
+      "erase",
+      "wipe",
+      "destroy",
+      "format",
+      "truncate",
+      "drop",
+      "reset",
+      "kill",
+      "terminate",
+      "taskkill",
+      "stop process",
+      "uninstall",
+      "overwrite",
+      "replace",
+      "rm ",
+      "del ",
+      "rmdir",
+      "rd "
+    ],
+    "chat_slot": "orchestrator",
+    "announce_planning": false,
+    "speak_system_messages": false,
+    "speak_chat": true,
+    "max_history": 12,
+    "immediate_ack": true,
+    "user_focus_window_sec": 30
+  },
+  "llm_think_tank": {
+    "slots": [
+        {
+            "name": "primary",
+            "provider_name": "ollama_cloud",
+            "model": "glm-4.6:cloud",
+            "enabled": true,
+            "role": "reasoning"
+        },
+        {
+            "name": "advisor_ollama",
+            "provider_name": "ollama_cloud",
+            "model": "kimi-k2.5:cloud",
+            "enabled": true,
+            "role": "reasoning"
+        }
+    ]
+  },
+  "tool_trm_gateway": {
+    "trm_enabled": true,
+    "confidence_threshold": 0.3,
+    "trm_takeover_threshold": 0.7,
+    "llm_teacher_enabled": true,
+    "llm_teacher_slot": "forge",
+    "auto_forge": true,
+    "forge_on_miss": true
+  },
+  "tool_access": {
+    "_comment": "Tools that Forge is allowed to use. Memory/KG writes should be internal pipelines, not tool calls.",
+    "deny_tools": [
+      "memory.add_fact",
+      "kg.add_triple"
+    ],
+    "deny_prefixes": [
+      "memory_pruner."
+    ]
+  },
+  "online_training": {
+    "enabled": true,
+    "trm_types": ["tool", "memory", "reasoning"],
+    "swap_policy": "auto",
+    "batch_size": 16,
+    "min_examples": 8,
+    "train_every_n": 16,
+    "swap_after_n_batches": 10,
+    "swap_every_seconds": 3600,
+    "lr": 1e-5,
+    "max_buffer_size": 1000,
+    "save_checkpoints": true
+  },
+  "memory_buckets": {
+    "_comment": "Append-only ingestion buckets + single DB writer. Buckets store raw events forever; DB writer materializes structured memory + vectors.",
+    "dir": "data/buckets",
+    "state_path": "data/buckets/state.json",
+    "flush_every": 0.25,
+    "poll_seconds": 0.5,
+    "max_lines_per_tick": 200
+  },
+  "memory_extraction": {
+    "slot": "memory"
+  },
+  "embeddings": {
+    "enabled": true,
+    "model": "qwen3-embedding:0.6b-fp16",
+    "base_url": "http://localhost:11434",
+    "timeout_sec": 30
+  },
+  "context_curator": {
+    "enabled": true,
+    "max_history_per_source": 32,
+    "duplicate_window_seconds": 20.0,
+    "prune_seconds": 1200.0,
+    "embeddings": {
+      "enabled": true,
+      "model": "qwen3-embedding:0.6b-fp16",
+      "base_url": "http://localhost:11434",
+      "timeout_sec": 30
+    }
+  }
+}

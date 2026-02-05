@@ -1,0 +1,10 @@
+.git
+dashboard/node_modules
+dashboard/.next
+dashboard/.turbo
+__pycache__
+*.pyc
+temp
+artifacts
+pending_sync.jsonl
+url_preview.png

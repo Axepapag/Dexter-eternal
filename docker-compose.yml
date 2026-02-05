@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  dexter:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DEXTER_DB_PATH=data/brain.db
+      # Set API keys as needed:
+      # - OLLAMA_API_KEY=...
+      # - NVIDIA_API_KEY=...
+      # - GROQ_API_KEY=...
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+      - ./memory:/app/memory
+      - ./secrets:/app/secrets

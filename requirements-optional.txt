@@ -1,0 +1,6 @@
+playwright
+opencv-python
+pyautogui
+pytesseract
+pillow
+cryptography

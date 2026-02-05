@@ -1,0 +1,373 @@
+# Streaming API
+
+GET /v3/ws
+
+Main channel for bi-directional audio and transcription data.
+
+<Note> To use our EU server for Streaming STT, replace `streaming.assemblyai.com` with
+`streaming.eu.assemblyai.com`. </Note>
+
+
+Reference: https://www.assemblyai.com/docs/api-reference/streaming-api/streaming-api
+
+## AsyncAPI Specification
+
+```yaml
+asyncapi: 2.6.0
+info:
+  title: Streaming API
+  version: subpackage_streamingApi.Streaming API
+  description: >
+    Main channel for bi-directional audio and transcription data.
+
+
+    <Note> To use our EU server for Streaming STT, replace
+    `streaming.assemblyai.com` with
+
+    `streaming.eu.assemblyai.com`. </Note>
+channels:
+  /v3/ws:
+    description: >
+      Main channel for bi-directional audio and transcription data.
+
+
+      <Note> To use our EU server for Streaming STT, replace
+      `streaming.assemblyai.com` with
+
+      `streaming.eu.assemblyai.com`. </Note>
+    bindings:
+      ws:
+        query:
+          type: object
+          properties:
+            sample_rate:
+              type: integer
+            encoding:
+              $ref: '#/components/schemas/streaming_encoding'
+            end_of_turn_confidence_threshold:
+              type: string
+              default: '0.4'
+            format_turns:
+              $ref: '#/components/schemas/streaming_format_turns'
+            inactivity_timeout:
+              type: integer
+            keyterms_prompt:
+              type: array
+              items:
+                type: string
+            language_detection:
+              $ref: '#/components/schemas/streaming_language_detection'
+            min_end_of_turn_silence_when_confident:
+              type: string
+              format: ms
+              default: '400'
+            max_turn_silence:
+              type: string
+              format: ms
+              default: '1280'
+            language:
+              $ref: '#/components/schemas/streaming_language'
+            speech_model:
+              $ref: '#/components/schemas/streaming_speech_model'
+            token:
+              type: string
+            vad_threshold:
+              type: string
+              default: '0.4'
+        headers:
+          type: object
+          properties:
+            Authorization:
+              type: string
+    publish:
+      operationId: streaming-api-publish
+      summary: Server messages
+      message:
+        oneOf:
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-server-0-receiveSessionBegins
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-server-1-receiveTurn
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-server-2-receiveTermination
+    subscribe:
+      operationId: streaming-api-subscribe
+      summary: Client messages
+      message:
+        oneOf:
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-client-0-sendAudio
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-client-1-sendUpdateConfiguration
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-client-2-sendForceEndpoint
+          - $ref: >-
+              #/components/messages/subpackage_streamingApi.Streaming
+              API-client-3-sendSessionTermination
+servers:
+  Default:
+    url: wss://streaming.assemblyai.com/
+    protocol: wss
+components:
+  messages:
+    subpackage_streamingApi.Streaming API-server-0-receiveSessionBegins:
+      name: receiveSessionBegins
+      title: receiveSessionBegins
+      description: >-
+        Receive confirmation that the streaming session has successfully
+        started.
+      payload:
+        $ref: '#/components/schemas/streaming_sessionBegins'
+    subpackage_streamingApi.Streaming API-server-1-receiveTurn:
+      name: receiveTurn
+      title: receiveTurn
+      description: Receive a formatted turn-based transcription result.
+      payload:
+        $ref: '#/components/schemas/streaming_turn'
+    subpackage_streamingApi.Streaming API-server-2-receiveTermination:
+      name: receiveTermination
+      title: receiveTermination
+      description: Receive confirmation that the session has been terminated by the server.
+      payload:
+        $ref: '#/components/schemas/streaming_termination'
+    subpackage_streamingApi.Streaming API-client-0-sendAudio:
+      name: sendAudio
+      title: sendAudio
+      description: >-
+        Send audio data chunks for transcription. The payload must be of type
+        bytes and contain audio data between 50ms and 1000ms in length.
+      payload:
+        $ref: '#/components/schemas/streaming_audioChunk'
+    subpackage_streamingApi.Streaming API-client-1-sendUpdateConfiguration:
+      name: sendUpdateConfiguration
+      title: sendUpdateConfiguration
+      description: Update streaming configuration parameters during an active session.
+      payload:
+        $ref: '#/components/schemas/streaming_updateConfiguration'
+    subpackage_streamingApi.Streaming API-client-2-sendForceEndpoint:
+      name: sendForceEndpoint
+      title: sendForceEndpoint
+      description: Manually force an endpoint in the transcription.
+      payload:
+        $ref: '#/components/schemas/streaming_forceEndpoint'
+    subpackage_streamingApi.Streaming API-client-3-sendSessionTermination:
+      name: sendSessionTermination
+      title: sendSessionTermination
+      description: Gracefully terminate the streaming session.
+      payload:
+        $ref: '#/components/schemas/streaming_sessionTermination'
+  schemas:
+    streaming_encoding:
+      type: string
+      enum:
+        - value: pcm_s16le
+        - value: pcm_mulaw
+      default: pcm_s16le
+    streaming_format_turns:
+      type: string
+      enum:
+        - value: 'true'
+        - value: 'false'
+      default: 'false'
+    streaming_language_detection:
+      type: string
+      enum:
+        - value: 'true'
+        - value: 'false'
+      default: 'false'
+    streaming_language:
+      type: string
+      enum:
+        - value: en
+        - value: multi
+      default: en
+    streaming_speech_model:
+      type: string
+      enum:
+        - value: universal-streaming-english
+        - value: universal-streaming-multilingual
+      default: universal-streaming-english
+    streaming_sessionBegins:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - type: stringLiteral
+              value: Begin
+          description: Identifies the type of the message.
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the streaming session.
+        expires_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp indicating when the session will expire.
+      required:
+        - type
+        - id
+        - expires_at
+    Word:
+      type: object
+      properties:
+        text:
+          type: string
+          description: The transcribed word.
+        start:
+          type: integer
+          description: >-
+            Start time in milliseconds relative to the beginning of the audio
+            stream.
+        end:
+          type: integer
+          description: >-
+            End time in milliseconds relative to the beginning of the audio
+            stream.
+        confidence:
+          type: number
+          format: double
+          description: Confidence score for the word (0.0 to 1.0).
+        word_is_final:
+          type: boolean
+          description: Whether the word is final.
+      required:
+        - text
+        - start
+        - end
+        - confidence
+        - word_is_final
+    streaming_turn:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - type: stringLiteral
+              value: Turn
+        turn_order:
+          type: integer
+          description: Order of this turn in the conversation.
+        turn_is_formatted:
+          type: boolean
+          description: Whether this turn has been formatted.
+        end_of_turn:
+          type: boolean
+          description: Whether this marks the end of a turn.
+        transcript:
+          type: string
+          description: Transcript of all finalized words in the turn.
+        utterance:
+          type: string
+          description: >-
+            Transcript of all finalized words when an utterance is complete. Can
+            be multiple utterances in a turn.
+        language_code:
+          type: string
+          description: >-
+            The language of the turn. Only populated when language detection is
+            enabled and an utterance is complete or turn is final.
+        language_confidence:
+          type: number
+          format: double
+          description: >-
+            The confidence score for the detected language, between 0 (low
+            confidence) and 1 (high confidence). Only populated when language
+            detection is enabled and an utterance is complete or turn is final.
+        end_of_turn_confidence:
+          type: number
+          format: double
+          description: >-
+            The confidence score that this is the end of a turn, between 0.0
+            (low confidence) and 1.0 (high confidence).
+        words:
+          type: array
+          items:
+            $ref: '#/components/schemas/Word'
+          description: Array of word-level details for this turn.
+      required:
+        - type
+        - turn_order
+        - turn_is_formatted
+        - end_of_turn
+        - transcript
+        - end_of_turn_confidence
+        - words
+    streaming_termination:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - type: stringLiteral
+              value: Termination
+          description: Indicates the session has been terminated.
+        audio_duration_seconds:
+          type: integer
+          description: Duration of the audio in seconds.
+        session_duration_seconds:
+          type: integer
+          description: Duration of the session in seconds.
+      required:
+        - type
+        - audio_duration_seconds
+        - session_duration_seconds
+    streaming_audioChunk:
+      type: string
+      format: binary
+    streaming_updateConfiguration:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - type: stringLiteral
+              value: UpdateConfiguration
+        end_of_turn_confidence_threshold:
+          type:
+            - number
+            - 'null'
+          format: double
+          description: Confidence threshold (0-1) for detecting end of turn.
+        min_end_of_turn_silence_when_confident:
+          type:
+            - integer
+            - 'null'
+          description: Minimum silence duration in ms when confident about end of turn.
+        max_turn_silence:
+          type:
+            - integer
+            - 'null'
+          description: >-
+            The maximum amount of silence allowed in a turn before end of turn
+            is triggered.
+      required:
+        - type
+    streaming_forceEndpoint:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - type: stringLiteral
+              value: ForceEndpoint
+      required:
+        - type
+    streaming_sessionTermination:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - type: stringLiteral
+              value: Terminate
+      required:
+        - type
+
+```
