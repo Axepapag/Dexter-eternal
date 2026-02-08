@@ -1,0 +1,43 @@
+{
+  "ports": {
+    "api_server": 8000,
+    "dexter_core": 8001,
+    "browser": 3000,
+    "browser_debug": 9222
+  },
+  "components": {
+    "api_server": {
+      "enabled": true,
+      "command": ["python", "-m", "http.server", "8000"],
+      "working_dir": ".",
+      "wait_time": 3
+    },
+    "dexter_core": {
+      "enabled": true,
+      "command": ["python", "dexter.py"],
+      "working_dir": ".",
+      "wait_time": 5
+    },
+    "browser": {
+      "enabled": true,
+      "command": ["npm", "start"],
+      "working_dir": "dexter-browser",
+      "wait_time": 10
+    },
+    "memory_system": {
+      "enabled": true,
+      "command": ["python", "-c", "print('Memory system initialized')"],
+      "working_dir": ".",
+      "wait_time": 2
+    },
+    "research_engine": {
+      "enabled": false,
+      "command": ["python", "-c", "print('Research engine initialized')"],
+      "working_dir": ".",
+      "wait_time": 2
+    }
+  },
+  "max_retries": 3,
+  "startup_timeout": 30,
+  "log_level": "INFO"
+}
