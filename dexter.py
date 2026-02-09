@@ -620,7 +620,7 @@ class Dexter:
         # Subscribe TRMs to communication channels (they learn from all traffic)
         self._subscribe_trms_to_channels()
 
-        # Stage ResponseTank artifacts (memory/reasoning/think-tank/user/tool) for deterministic injection.
+        # Stage ResponseTank artifacts (memory/reasoning/subconscious/user/tool) for deterministic injection.
         self._artifact_task = None
 
         # Shared Mental State (The "Blackboard")
@@ -2149,7 +2149,7 @@ class Dexter:
                 ctype = content.get("type") if isinstance(content, dict) else None
 
                 try:
-                    # Append-only capture of ALL artifacts (user/tool/think-tank/reasoning/etc).
+                    # Append-only capture of ALL artifacts (user/tool/subconscious/reasoning/etc).
                     # This should never block the runtime; slow IO is handled by the bucket flush worker.
                     try:
                         self.bucket_manager.enqueue(
