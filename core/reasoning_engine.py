@@ -76,7 +76,7 @@ class ReasoningEngine:
         self,
         user_message: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
-        slot: str = "orchestrator",
+        slot: str = "dexter",
         pending_goal: Optional[str] = None,
         fast: bool = False,
     ) -> str:
@@ -162,7 +162,7 @@ If the user requests an action, proceed without confirmation.
         self,
         user_goal: str,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
     ) -> Dict[str, Any]:
         """
         Uses the selected slot brain to build a multi-step execution plan.
@@ -288,7 +288,7 @@ Return ONLY a valid JSON object:
         self,
         step_idx: int,
         result: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
         context_bundle: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -337,7 +337,7 @@ Respond with exactly one word: CONTINUE, RE-PLAN, or FINISH.
         self,
         error: str,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
     ) -> Dict[str, Any]:
         """Fixes a broken plan."""
         print(f"[Reasoning] Triggering RE-PLAN using {slot} slot...", flush=True)
@@ -428,7 +428,7 @@ The original plan hit a wall. Provide a NEW JSON plan to reach the goal.
     async def generate_proactive_task(
         self,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
     ) -> str:
         """
         Dexter leads: Decide on a new task based on the Global Mission.

@@ -2,7 +2,7 @@
 """
 Agent Collaboration for Dexter
 Multi-agent messaging, task delegation, and coordination
-Enables Dexter (lead orchestrator) to work with D2, Antigravity, and future agents
+Enables Dexter (lead coordinator) to work with D2, Antigravity, and future agents
 """
 
 import json
@@ -67,7 +67,7 @@ def agent_list() -> Dict[str, Any]:
         "agents": agents_info,
         "total": len(agents_info),
         "online": online_count,
-        "dexter_role": "lead_orchestrator",
+        "dexter_role": "lead_coordinator",
         "message": f"{online_count}/{len(agents_info)} agents online"
     }
 

@@ -21,7 +21,7 @@ class DiscoveryEngine:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         
-    async def _get_brain(self, slot: str = "orchestrator") -> tuple:
+    async def _get_brain(self, slot: str = "dexter") -> tuple:
         from core.llm_slots import resolve_llm_slot
         p_name, resolved_cfg, p_model = resolve_llm_slot(self.config, slot)
         return agent_provider.AsyncAIProvider(p_name, resolved_cfg), p_model
@@ -36,7 +36,7 @@ class DiscoveryEngine:
             return {"success": False, "error": "No facts found."}
         
         facts_text = "\n".join([f"- {f['text']}" for f in fact_result["results"]])
-        provider, model = await self._get_brain("orchestrator")
+        provider, model = await self._get_brain("dexter")
         
         prompt = f"Analyze these facts and extract (Subject, Predicate, Object) triples. Return JSON list only.\nFacts:\n{facts_text}"
         messages = [

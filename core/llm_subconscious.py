@@ -64,17 +64,17 @@ class LLMAdvisor:
             return
         if self.config.provider_name and self.config.provider_cfg:
             self._provider = AsyncAIProvider(self.config.provider_name, self.config.provider_cfg)
-            print(f"[LLM Think Tank] {self.config.name}: Online (model: {self.config.model})")
+            print(f"[LLM Subconscious] {self.config.name}: Online (model: {self.config.model})")
             return
 
         if self.config.get_api_key() is None:
-            print(f"[LLM Think Tank] {self.config.name}: API key not found, disabling")
+            print(f"[LLM Subconscious] {self.config.name}: API key not found, disabling")
             self._active = False
             return
 
         timeout = aiohttp.ClientTimeout(total=self.config.timeout)
         self._session = aiohttp.ClientSession(timeout=timeout)
-        print(f"[LLM Think Tank] {self.config.name}: Online (model: {self.config.model})")
+        print(f"[LLM Subconscious] {self.config.name}: Online (model: {self.config.model})")
     
     async def stop(self):
         if self._provider:
@@ -98,7 +98,7 @@ class LLMAdvisor:
             return None
         
         system_prompt = (
-            "You are a ThinkTank advisor in Dexter's brain."
+            "You are a Subconscious advisor in Dexter's brain."
             " Produce minimal, high-signal contributions as JSON artifacts."
             " Output ONLY JSON (no prose, no markdown)."
             "\n\nSchema:\n"
@@ -119,7 +119,7 @@ class LLMAdvisor:
             await self._publish_insight(insight)
             return insight
         except Exception as e:
-            print(f"[LLM Think Tank] {self.config.name}: Query failed - {e}")
+            print(f"[LLM Subconscious] {self.config.name}: Query failed - {e}")
             return None
     
     def _build_user_prompt(
@@ -177,7 +177,7 @@ class LLMAdvisor:
                 # Ollama Cloud uses /api/chat, not /chat/completions
                 endpoint = f"{base}/api/chat" if "ollama.com" in base else f"{base}/chat/completions"
                 started = time.perf_counter()
-                print(f"[LLM Think Tank] {self.config.name}: Requesting {self.config.model} at {endpoint}...", flush=True)
+                print(f"[LLM Subconscious] {self.config.name}: Requesting {self.config.model} at {endpoint}...", flush=True)
 
                 async with self._session.post(
                     endpoint,
@@ -186,7 +186,7 @@ class LLMAdvisor:
                 ) as response:
                     response.raise_for_status()
                     elapsed = time.perf_counter() - started
-                    print(f"[LLM Think Tank] {self.config.name}: Response {response.status} in {elapsed:.2f}s", flush=True)
+                    print(f"[LLM Subconscious] {self.config.name}: Response {response.status} in {elapsed:.2f}s", flush=True)
                     return await response.json()
             except Exception as e:
                 if attempt == self.config.max_retries - 1:
@@ -246,10 +246,10 @@ class LLMAdvisor:
         )
 
 
-class LLMThinkTank:
+class LLMSubconscious:
     def __init__(self, config: Dict[str, Any]):
         self._root_config = config
-        self._config = config.get("llm_think_tank", {})
+        self._config = config.get("llm_subconscious", {})
         self._slots: Dict[str, LLMAdvisor] = {}
         self._tank = get_global_tank()
         self._initialize_slots()
@@ -279,12 +279,12 @@ class LLMThinkTank:
             if advisor._active:
                 enabled_count += 1
         
-        print(f"[LLM Think Tank] {enabled_count} advisors online")
+        print(f"[LLM Subconscious] {enabled_count} advisors online")
     
     async def stop(self):
         for advisor in self._slots.values():
             await advisor.stop()
-        print("[LLM Think Tank] All advisors offline")
+        print("[LLM Subconscious] All advisors offline")
     
     async def broadcast(
         self,
@@ -300,7 +300,7 @@ class LLMThinkTank:
         ]
         
         if not tasks:
-            print("[LLM Think Tank] No enabled advisors")
+            print("[LLM Subconscious] No enabled advisors")
             return []
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -310,9 +310,9 @@ class LLMThinkTank:
             if isinstance(result, LLMInsight):
                 insights.append(result)
             elif isinstance(result, Exception):
-                print(f"[LLM Think Tank] Query error: {result}")
+                print(f"[LLM Subconscious] Query error: {result}")
         
-        print(f"[LLM Think Tank] Received {len(insights)} insights")
+        print(f"[LLM Subconscious] Received {len(insights)} insights")
         return insights
     
     async def query_specific(
@@ -323,7 +323,7 @@ class LLMThinkTank:
     ) -> Optional[LLMInsight]:
         advisor = self._slots.get(slot_name)
         if not advisor:
-            print(f"[LLM Think Tank] Slot {slot_name} not found")
+            print(f"[LLM Subconscious] Slot {slot_name} not found")
             return None
         
         return await advisor.query(context, specific_questions)

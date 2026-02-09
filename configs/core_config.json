@@ -45,16 +45,16 @@
   },
 
   "llm_slots": {
-    "orchestrator": {
+    "dexter": {
       "provider_name": "ollama",
       "model": "minimax-m2:cloud",
-      "_comment": "Orchestrator must respond fast; keep a tight timeout and fall back to NVIDIA if Ollama Cloud is unavailable.",
+      "_comment": "Dexter must respond fast; keep a tight timeout and fall back to NVIDIA if Ollama Cloud is unavailable.",
       "provider_overrides": {
         "timeout_sec": 8
       },
-      "fallback_slots": ["orchestrator_backup"]
+      "fallback_slots": ["dexter_backup"]
     },
-    "orchestrator_backup": {
+    "dexter_backup": {
       "provider_name": "nvidia",
       "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
     },
@@ -182,7 +182,7 @@
       "rmdir",
       "rd "
     ],
-    "chat_slot": "orchestrator",
+    "chat_slot": "dexter",
     "announce_planning": false,
     "speak_system_messages": false,
     "speak_chat": true,
@@ -190,7 +190,7 @@
     "immediate_ack": true,
     "user_focus_window_sec": 30
   },
-  "llm_think_tank": {
+  "llm_subconscious": {
     "slots": [
         {
             "name": "primary",

@@ -19,7 +19,7 @@ class GraphReasoner:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         
-    async def _get_brain(self, slot: str = "orchestrator") -> tuple:
+    async def _get_brain(self, slot: str = "dexter") -> tuple:
         from core.llm_slots import resolve_llm_slot
         p_name, resolved_cfg, p_model = resolve_llm_slot(self.config, slot)
         return agent_provider.AsyncAIProvider(p_name, resolved_cfg), p_model
@@ -65,7 +65,7 @@ class GraphReasoner:
         print(f"[Reasoner] Analyzing question: {question}...", flush=True)
         
         # 1. Identify key entities in the question via LLM
-        provider, model = await self._get_brain("orchestrator")
+        provider, model = await self._get_brain("dexter")
         try:
             extract_prompt = f"Identify the primary entities (nouns/concepts) in this question: '{question}'. Return ONLY a JSON list of strings."
             messages = [

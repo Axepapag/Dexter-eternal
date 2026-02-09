@@ -23,7 +23,7 @@ def resolve_llm_slot(
         model = slot_cfg.get("model")
         if provider_name and model:
             _, provider_cfg = resolve_provider_config(config, provider_name)
-            # Allow per-slot provider overrides (e.g., tighter timeouts for orchestrator chat).
+            # Allow per-slot provider overrides (e.g., tighter timeouts for dexter chat).
             overrides = slot_cfg.get("provider_overrides") or {}
             if isinstance(overrides, dict) and overrides:
                 provider_cfg = dict(provider_cfg)

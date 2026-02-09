@@ -203,7 +203,7 @@ class SkillLibrarian:
     async def choose_skill_llm(
         self,
         goal: str,
-        slot: str = "orchestrator",
+        slot: str = "dexter",
         context_bundle: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
