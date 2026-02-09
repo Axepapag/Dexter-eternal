@@ -41,7 +41,7 @@ class DexterLauncher:
             "components": {
                 "api_server": {
                     "enabled": True,
-                    "command": ["python", "-m", "http.server", "8000"],
+                    "command": ["python", "core/api.py"],
                     "wait_time": 3,
                 },
                 "dexter_core": {
