@@ -8,7 +8,7 @@
   "components": {
     "api_server": {
       "enabled": true,
-      "command": ["python", "-m", "http.server", "8000"],
+      "command": ["python", "core/api.py"],
       "working_dir": ".",
       "wait_time": 3
     },
@@ -19,10 +19,11 @@
       "wait_time": 5
     },
     "browser": {
-      "enabled": true,
+      "enabled": false,
       "command": ["npm", "start"],
       "working_dir": "dexter-browser",
-      "wait_time": 10
+      "wait_time": 10,
+      "_comment": "Browser component disabled - dexter-browser directory does not exist. To enable, create frontend in dexter-browser/ directory."
     },
     "memory_system": {
       "enabled": true,
