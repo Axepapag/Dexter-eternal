@@ -213,7 +213,7 @@ To achieve category leadership, Dexter-eternal requires **brand new, specialized
 ### Cost Analysis: Building World-Class AI Infrastructure
 
 #### Bare-Minimum Annual GPU Research Budget (Starter Phase)
-To keep recursive-state model research moving **at the lowest viable cost for GPU hardware, power, and storage**, the current estimate is:
+To sustain **basic GPU research infrastructure** (hardware, power, and storage), the current estimate is:
 
 - **$60,000 - $150,000 per year** for 2-4 high-end GPUs, storage, and power.
 - Sufficient for small TRM experiments, prototype training runs, and iterative research.
@@ -461,7 +461,7 @@ For enterprise licensing, partnership opportunities, or investment discussions, 
 
 **Dexter-eternal** is actively seeking strategic partners and investors to accelerate development and market entry.
 
-This is a **highly investable** platform because it already has production-grade core systems, a defensible recursive-state research agenda, and a clear path to revenue in regulated and latency-critical markets.
+This is a **highly investable** platform because it already has an enterprise-capable foundation, a defensible recursive-state research agenda, and a clear path to revenue in regulated and latency-critical markets.
 
 **Investment Highlights:**
 - 🚀 First-mover advantage in stateful local AI
