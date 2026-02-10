@@ -30,6 +30,37 @@ Unlike traditional AI systems that send every request to the cloud, Dexter-etern
 3. **Multi-LLM Orchestration**: Strategic use of cloud LLMs only when needed
 4. **Knowledge Graph Integration**: Persistent fact storage and relationship mapping
 
+### Current Operational Capabilities (Implemented)
+Based on the current codebase, Dexter-eternal already operates as a full-stack cognitive system with:
+
+- **Dexter Core Orchestration**: A unified runtime that routes requests through TRMs, tool agents, and memory pipelines.
+- **Persistent Memory Pipeline**: Ingestion, bucketed storage, retrieval, and graph reasoning to preserve context across sessions.
+- **Tool Execution Layer**: Toolbooks, tool agents, and executors that safely invoke APIs/skills with error-aware routing.
+- **LLM Subconscious**: Multi-LLM advisory slots for high-complexity reasoning, fallbacks, and evaluation loops.
+- **API Server**: FastAPI-based REST/WebSocket endpoints for real-time integrations.
+- **Training & Evolution Utilities**: Online training hooks, skill librarian utilities, and dataset generation for iterative model growth.
+
+### Hybrid TRM + LLM Infrastructure: Why It’s Powerful
+TRMs handle **stateful, low-latency cognition locally**, while large LLMs are invoked **selectively** for high-complexity tasks or broad knowledge. This hybrid design delivers:
+
+- **Speed**: TRMs resolve most actions in 5-15ms without cloud roundtrips.
+- **Cost Control**: Expensive API calls are reserved for moments of maximum leverage.
+- **Continuity**: TRM state carries context that cloud LLMs usually lose between requests.
+
+### Customization for Local and API-Called LLMs
+Dexter-eternal is built to swap LLM backends per deployment:
+
+- **Local-first mode**: Bind LLM slots to local ONNX/TorchScript models for offline or air-gapped deployments.
+- **Hybrid mode**: Route core cognition to TRMs, with API calls only for deep reasoning or special tools.
+- **API-first mode**: Plug in OpenAI/Anthropic-style endpoints while still retaining TRM state and memory.
+- **Per-vertical tuning**: Configure prompts, routing policies, and TRM weights by industry or domain.
+
+### Scalability & Deployment Flexibility
+- **Edge scale**: Run on-device for embedded systems and privacy-sensitive environments.
+- **Enterprise scale**: Move to PostgreSQL, horizontal API servers, and multi-tenant isolation.
+- **Model scale**: Train/replace individual TRMs without retraining the entire stack.
+- **Tool scale**: Add new toolbooks, skill packs, and routing policies without changing the core.
+
 ### Tiny Recursive Models (TRMs): Technical Deep Dive
 
 TRMs represent a paradigm shift in AI model design:
@@ -135,6 +166,17 @@ While OpenAI, Anthropic, and Google provide powerful stateless cloud LLMs, and M
 
 ---
 
+### Infrastructure-Wide Use Cases (End-to-End)
+Beyond the individual TRMs, the full Dexter-eternal stack enables:
+
+- **Privacy-first enterprise assistants** for legal, healthcare, or defense workloads where data cannot leave the premises.
+- **Real-time operational copilots** for manufacturing and logistics with millisecond response constraints.
+- **Offline field intelligence** for utilities, inspection, and disaster response in low-connectivity environments.
+- **Edge autonomy** for robotics, drones, and automotive systems needing persistent context.
+- **Knowledge retention systems** for customer success, internal documentation, and institutional memory.
+- **Tool-driven automation** for finance, IT operations, and supply chain workflows with error-aware recovery.
+- **Adaptive consumer devices** (wearables, smart home, mobile) that learn within a session without cloud dependency.
+
 ## 📊 Future Improvements & Investment Roadmap
 
 ### Training Specialized AI Models: The Path to Dominance
@@ -155,7 +197,12 @@ To achieve category leadership, Dexter-eternal requires **brand new, specialized
 - Reinforcement learning from user feedback
 - Federated learning across edge devices
 
-**3. Enterprise Features**
+**3. Recursive State Research (Active)**
+- The developer is actively experimenting with a **new model family** built on recursive-state ideology.
+- The goal is to move beyond current TRMs into an even more compact, continuously stateful architecture.
+- This R&D track is a key differentiator and a core reason the project is highly investable.
+
+**4. Enterprise Features**
 - Model encryption and IP protection
 - Multi-tenant isolation
 - Real-time model updates
@@ -164,6 +211,14 @@ To achieve category leadership, Dexter-eternal requires **brand new, specialized
 ---
 
 ### Cost Analysis: Building World-Class AI Infrastructure
+
+#### Bare-Minimum Annual GPU Research Budget (Starter Phase)
+To keep recursive-state model research moving **at the lowest viable cost**, the current estimate is:
+
+- **$60,000 - $150,000 per year** for 2-4 high-end GPUs, storage, and power.
+- Sufficient for small TRM experiments, prototype training runs, and iterative research.
+
+With **scaled investment**, the roadmap expands to **owned inference clusters**, continuous evaluation, and live training loops that accelerate model evolution.
 
 #### Hardware Investment
 
@@ -405,6 +460,8 @@ For enterprise licensing, partnership opportunities, or investment discussions, 
 ## 📞 Contact & Investment Opportunities
 
 **Dexter-eternal** is actively seeking strategic partners and investors to accelerate development and market entry.
+
+This is a **highly investable** platform because it already has production-grade core systems, a defensible recursive-state research agenda, and a clear path to revenue in regulated and latency-critical markets.
 
 **Investment Highlights:**
 - 🚀 First-mover advantage in stateful local AI
