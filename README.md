@@ -12,7 +12,7 @@
 
 ### Market Opportunity
 
-The global AI market is projected to reach **$1.8 trillion by 2030** (Grand View Research), with autonomous AI agents representing one of the fastest-growing segments. Current AI limitations—including context loss, inability to learn from experience, and lack of persistent reasoning—create a multi-billion dollar opportunity for cognitive architectures that can overcome these barriers.
+The global AI market is projected to reach **$1.8 trillion by 2030** ([Grand View Research, 2024](https://www.grandviewresearch.com/industry-analysis/artificial-intelligence-ai-market)), with autonomous AI agents representing one of the fastest-growing segments. Current AI limitations—including context loss, inability to learn from experience, and lack of persistent reasoning—create a multi-billion dollar opportunity for cognitive architectures that can overcome these barriers.
 
 ### Investment Highlights
 
@@ -257,7 +257,7 @@ Dexter-Eternal solves these problems through a revolutionary **stateful cognitiv
 
 ### Technology Stack
 
-- **Core**: Python 3.10+, AsyncIO for non-blocking operations
+- **Core**: Python 3.11+, AsyncIO for non-blocking operations
 - **AI/ML**: PyTorch (custom TRMs), Multi-LLM support (Ollama, OpenAI-compatible, NVIDIA)
 - **Memory**: SQLite with vector embeddings, semantic search
 - **API**: FastAPI + WebSocket for real-time communication
@@ -370,7 +370,7 @@ python advanced_launcher.py --start
 ```
 
 ### System Requirements
-- Python 3.10+
+- Python 3.11+
 - 8GB+ RAM (16GB recommended)
 - Optional: NVIDIA GPU for local model acceleration
 - Optional: Ollama for local model hosting
@@ -390,21 +390,21 @@ Dexter-Eternal represents a unique opportunity to invest in the future of autono
 ### Contact
 
 For investment discussions, partnerships, or technical deep-dives:
-- 📧 **Email**: [Contact through GitHub]
-- 💼 **LinkedIn**: [Connect with maintainers]
-- 🐙 **GitHub**: [Open an issue for inquiries](https://github.com/Axepapag/Dexter-eternal/issues)
+- 🐙 **GitHub Issues**: [Business inquiries and partnerships](https://github.com/Axepapag/Dexter-eternal/issues) (tag with `business-inquiry`)
+- 💼 **GitHub Discussions**: [Start a discussion](https://github.com/Axepapag/Dexter-eternal/discussions) for detailed technical or strategic conversations
+- 📧 **Direct Contact**: Available through GitHub profile of repository maintainers
 
 ---
 
 ## 📄 License & Legal
 
-Open source under [LICENSE] - enabling rapid adoption, community contribution, and future commercial licensing models.
-
-**Note for Investors**: Current open-source status enables:
-- Community validation and improvement
+This project is currently in active development. License terms are being finalized to support:
+- Community validation and contribution
 - Rapid market adoption and ecosystem development
 - Future dual-licensing model (open-core strategy)
-- Patent applications for core innovations in progress
+- Patent applications for core innovations
+
+**Note for Investors**: The open-core approach enables both community-driven innovation and commercial opportunities through enterprise licensing.
 
 ---
 
