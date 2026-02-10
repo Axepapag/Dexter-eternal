@@ -216,6 +216,7 @@ To achieve category leadership, Dexter-eternal requires **brand new, specialized
 To sustain **basic GPU research infrastructure** (hardware, power, and storage), the current estimate is:
 
 - **$60,000 - $150,000 per year** for 2-4 high-end GPUs, storage, and power.
+- Range varies by GPU class (prosumer vs. datacenter), storage tier, and regional power costs.
 - Sufficient for small TRM experiments, prototype training runs, and iterative research.
 
 With **scaled investment**, the roadmap expands to **owned inference clusters**, continuous evaluation, and live training loops that accelerate model evolution.
