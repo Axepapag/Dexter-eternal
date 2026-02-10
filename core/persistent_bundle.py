@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 class PersistentArtifactBundle:
     """
-    Persistent artifact bundle for a specific LLM (orchestrator / think_tank / forge).
+    Persistent artifact bundle for a specific LLM (dexter / subconscious / forge).
     Stores structured artifacts and retains them across injections.
     """
 

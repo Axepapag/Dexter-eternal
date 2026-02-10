@@ -47,7 +47,7 @@ from core.speaker import speak_out_loud
 from core.api import start_api_server, broadcast_thought
 from core.response_tank import get_global_tank
 from core.rolling_context_bundle import get_global_bundle, get_staged_bundle, StagedContextBundle
-from core.llm_think_tank import LLMThinkTank
+from core.llm_subconscious import LLMSubconscious
 from core.memory_trm import create_memory_trm
 from core.memory_ingestor import MemoryIngestor
 from core.memory_retriever import retrieve_context
@@ -506,16 +506,16 @@ class Dexter:
         self.response_tank = get_global_tank()
         self.rolling_context = get_global_bundle()
         self.staged_context = get_staged_bundle()  # Accumulates background updates
-        self.orchestrator_bundle = PersistentArtifactBundle("orchestrator")
-        self.think_tank_bundle = PersistentArtifactBundle("think_tank")
-        self.llm_think_tank = LLMThinkTank(self.config)
+        self.dexter_bundle = PersistentArtifactBundle("dexter")
+        self.subconscious_bundle = PersistentArtifactBundle("subconscious")
+        self.llm_subconscious = LLMSubconscious(self.config)
 
         # Tool result reactions:
         # Tool execution happens asynchronously via Forge; without a reactor, tool results
-        # only update context and never trigger the orchestrator LLM to "notice" and respond.
+        # only update context and never trigger the dexter LLM to "notice" and respond.
         self._tool_result_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=int(os.getenv("DEXTER_TOOL_RESULT_QUEUE", "500") or "500"))
         self._tool_result_reactor_task: Optional[asyncio.Task] = None
-        self._think_tank_reload_task: Optional[asyncio.Task] = None
+        self._subconscious_reload_task: Optional[asyncio.Task] = None
 
         # Bucket-based ingestion + single DB writer (append-only, non-blocking producers).
         mb_cfg = self.config.get("memory_buckets", {}) or {}
@@ -541,10 +541,10 @@ class Dexter:
         self.intent_trm_min_confidence = 1.0
         mem_cfg = self.config.get("memory_trm", {}) or {}
         self.memory_trm_enabled = bool(mem_cfg.get("enabled", True))
-        wm_cfg = self.config.get("orchestrator_working_memory", {}) or {}
+        wm_cfg = self.config.get("dexter_working_memory", {}) or {}
         self.working_memory_enabled = bool(wm_cfg.get("enabled", True))
         self.working_memory_path = self._resolve_repo_path(
-            wm_cfg.get("path", "data/orchestrator_working_memory.jsonl")
+            wm_cfg.get("path", "data/dexter_working_memory.jsonl")
         )
         self._working_memory_lock = threading.Lock()
         self._last_injection_payload: Optional[Dict[str, Any]] = None
@@ -620,7 +620,7 @@ class Dexter:
         # Subscribe TRMs to communication channels (they learn from all traffic)
         self._subscribe_trms_to_channels()
 
-        # Stage ResponseTank artifacts (memory/reasoning/think-tank/user/tool) for deterministic injection.
+        # Stage ResponseTank artifacts (memory/reasoning/subconscious/user/tool) for deterministic injection.
         self._artifact_task = None
 
         # Shared Mental State (The "Blackboard")
@@ -829,7 +829,7 @@ class Dexter:
             "trms_loaded": list(self.trained_trms.keys()) if isinstance(self.trained_trms, dict) else [],
             "memory_trm_enabled": self.memory_trm_enabled,
             "tool_gateway_ready": True,
-            "think_tank_slots": self.llm_think_tank.get_enabled_slots(),
+            "subconscious_slots": self.llm_subconscious.get_enabled_slots(),
             "conversation": {
                 "chat_slot": self.conversation_cfg.get("chat_slot"),
                 "auto_plan": self.conversation_cfg.get("auto_plan"),
@@ -889,7 +889,7 @@ class Dexter:
         if isinstance(internal, dict) and internal:
             carry["internal"] = {
                 "tasks": internal.get("tasks") or [],
-                "questions_for_think_tank": internal.get("questions_for_think_tank") or [],
+                "questions_for_subconscious": internal.get("questions_for_subconscious") or [],
                 "memory_updates": internal.get("memory_updates") or [],
                 "reasoning_requests": internal.get("reasoning_requests") or [],
             }
@@ -937,7 +937,7 @@ class Dexter:
         return pairs
 
     def _set_llm_slot(self, slot_name: str, provider_name: str, model: str) -> None:
-        slot = (slot_name or "").strip() or "orchestrator"
+        slot = (slot_name or "").strip() or "dexter"
         pn = (provider_name or "").strip()
         mm = (model or "").strip()
         if not pn or not mm:
@@ -952,12 +952,12 @@ class Dexter:
         slot_cfg["model"] = mm
         self.config["llm_slots"][slot] = slot_cfg
 
-    def _ui_pick_orchestrator_model(self) -> None:
+    def _ui_pick_dexter_model(self) -> None:
         pairs = self._provider_model_pairs()
         if not pairs:
             self._print_internal("System", "[ModelPicker] No providers/models found in config['providers'].")
             return
-        chat_slot = str(self.conversation_cfg.get("chat_slot", "orchestrator") or "orchestrator")
+        chat_slot = str(self.conversation_cfg.get("chat_slot", "dexter") or "dexter")
         slot_cfg = (self.config.get("llm_slots", {}) or {}).get(chat_slot, {}) or {}
         cur_p = str(slot_cfg.get("provider_name") or "")
         cur_m = str(slot_cfg.get("model") or "")
@@ -969,7 +969,7 @@ class Dexter:
             if cur_p and cur_m and p == cur_p and m == cur_m:
                 start_idx = i
 
-        sel = _interactive_select(f"Select Orchestrator Model (slot={chat_slot})", labels, start_index=start_idx)
+        sel = _interactive_select(f"Select Dexter Model (slot={chat_slot})", labels, start_index=start_idx)
         if sel is None:
             return
         provider_name, model = pairs[int(sel)]
@@ -978,11 +978,11 @@ class Dexter:
         self._refresh_runtime_config()
         self._print_internal(
             "System",
-            f"[ModelPicker] Orchestrator slot '{chat_slot}' -> {provider_name}/{model}",
+            f"[ModelPicker] Dexter slot '{chat_slot}' -> {provider_name}/{model}",
         )
 
-    def _think_tank_slots_from_config(self) -> List[Dict[str, Any]]:
-        cfg = self.config.get("llm_think_tank", {}) or {}
+    def _subconscious_slots_from_config(self) -> List[Dict[str, Any]]:
+        cfg = self.config.get("llm_subconscious", {}) or {}
         slots = cfg.get("slots") or []
         if isinstance(slots, list):
             out = []
@@ -992,12 +992,12 @@ class Dexter:
             return out
         return []
 
-    def _ui_pick_think_tank_model(self) -> Optional[tuple[str, str]]:
-        slots = self._think_tank_slots_from_config()
+    def _ui_pick_subconscious_model(self) -> Optional[tuple[str, str]]:
+        slots = self._subconscious_slots_from_config()
         if not slots:
             self._print_internal(
                 "System",
-                "[ModelPicker] No think tank slots found in config['llm_think_tank']['slots'].",
+                "[ModelPicker] No subconscious slots found in config['llm_subconscious']['slots'].",
             )
             return None
 
@@ -1013,7 +1013,7 @@ class Dexter:
             else:
                 slot_labels.append(f"{name} [{tag}] (model={model})")
 
-        sel_slot = _interactive_select("Select Think Tank Slot", slot_labels, start_index=0)
+        sel_slot = _interactive_select("Select Subconscious Slot", slot_labels, start_index=0)
         if sel_slot is None:
             return None
         chosen = slots[int(sel_slot)]
@@ -1025,13 +1025,13 @@ class Dexter:
         # Otherwise (raw URL mode), only allow selecting the configured model string.
         if not provider:
             one = [cur_model or "(empty model)"]
-            _ = _interactive_select(f"Select Model For Think Tank Slot '{name}'", one, start_index=0)
+            _ = _interactive_select(f"Select Model For Subconscious Slot '{name}'", one, start_index=0)
             return (name, cur_model)
 
         pairs = [pm for pm in self._provider_model_pairs() if pm[0] == provider]
         if not pairs:
             one = [cur_model or "(empty model)"]
-            _ = _interactive_select(f"Select Model For Think Tank Slot '{name}' ({provider})", one, start_index=0)
+            _ = _interactive_select(f"Select Model For Subconscious Slot '{name}' ({provider})", one, start_index=0)
             return (name, cur_model)
 
         labels = [f"{p}: {m}" for (p, m) in pairs]
@@ -1040,14 +1040,14 @@ class Dexter:
             if cur_model and m == cur_model:
                 start_idx = i
                 break
-        sel_model = _interactive_select(f"Select Model For Think Tank Slot '{name}' ({provider})", labels, start_index=start_idx)
+        sel_model = _interactive_select(f"Select Model For Subconscious Slot '{name}' ({provider})", labels, start_index=start_idx)
         if sel_model is None:
             return None
         _, model = pairs[int(sel_model)]
         return (name, model)
 
-    def _apply_think_tank_model(self, slot_name: str, model: str) -> bool:
-        slots = self._think_tank_slots_from_config()
+    def _apply_subconscious_model(self, slot_name: str, model: str) -> bool:
+        slots = self._subconscious_slots_from_config()
         changed = False
         for s in slots:
             if str(s.get("name") or "") == str(slot_name or ""):
@@ -1057,21 +1057,21 @@ class Dexter:
         if not changed:
             return False
         # Write back into config (preserving order and other fields).
-        self.config.setdefault("llm_think_tank", {})
-        if not isinstance(self.config["llm_think_tank"], dict):
-            self.config["llm_think_tank"] = {}
-        self.config["llm_think_tank"]["slots"] = slots
+        self.config.setdefault("llm_subconscious", {})
+        if not isinstance(self.config["llm_subconscious"], dict):
+            self.config["llm_subconscious"] = {}
+        self.config["llm_subconscious"]["slots"] = slots
         self._persist_config()
         return True
 
-    async def _restart_think_tank(self) -> None:
+    async def _restart_subconscious(self) -> None:
         try:
-            await self.llm_think_tank.stop()
+            await self.llm_subconscious.stop()
         except Exception:
             pass
         try:
-            self.llm_think_tank = LLMThinkTank(self.config)
-            await self.llm_think_tank.start()
+            self.llm_subconscious = LLMSubconscious(self.config)
+            await self.llm_subconscious.start()
         except Exception:
             pass
 
@@ -1104,7 +1104,7 @@ class Dexter:
             "idle_seconds": float(cfg.get("idle_seconds", 20)),
             "tick_seconds": float(cfg.get("tick_seconds", 15)),
             "generate_when_empty": bool(cfg.get("generate_when_empty", True)),
-            "slot": (cfg.get("generation", {}) or {}).get("slot", "orchestrator"),
+            "slot": (cfg.get("generation", {}) or {}).get("slot", "dexter"),
         }
 
     def _apply_max_training(self) -> None:
@@ -1271,7 +1271,7 @@ class Dexter:
         ])
         cfg.setdefault("confirm_keywords", ["yes", "yep", "yeah", "ok", "okay", "do it", "go ahead", "please do", "start", "proceed", "begin"])
         cfg.setdefault("decline_keywords", ["no", "nope", "not now", "don't", "stop", "cancel", "never mind"])
-        cfg.setdefault("chat_slot", "orchestrator")
+        cfg.setdefault("chat_slot", "dexter")
         cfg.setdefault("announce_planning", False)
         cfg.setdefault("speak_system_messages", False)
         cfg.setdefault("speak_chat", False)
@@ -1298,17 +1298,17 @@ class Dexter:
         except Exception as exc:
             self._print_internal("System", f"Rolling context skill seed failed: {exc}")
         try:
-            await self.rolling_context.set_enabled_llms(self.llm_think_tank.get_enabled_slots())
+            await self.rolling_context.set_enabled_llms(self.llm_subconscious.get_enabled_slots())
         except Exception:
             pass
 
     async def _stage_startup_status(self) -> None:
-        """Stage startup diagnostics into the orchestrator staged bundle."""
+        """Stage startup diagnostics into the dexter staged bundle."""
         try:
             payload = {
                 "trms_loaded": list(self.trained_trms.keys()),
                 "memory_trm_enabled": self.memory_trm_enabled,
-                "think_tank_slots": self.llm_think_tank.get_enabled_slots(),
+                "subconscious_slots": self.llm_subconscious.get_enabled_slots(),
                 "tool_gateway_ready": True,
                 "config_summary": self._format_config_summary(),
             }
@@ -1335,7 +1335,7 @@ class Dexter:
             print(f"[MemoryDBWriter] Startup failed: {exc}", flush=True)
 
         await self.response_tank.start()
-        await self.llm_think_tank.start()
+        await self.llm_subconscious.start()
         if self.memory_trm_enabled:
             try:
                 await self.memory_trm.start()
@@ -1573,7 +1573,7 @@ class Dexter:
         injection_payload: Optional[Dict[str, Any]],
     ) -> str:
         sources = (injection_payload or {}).get("sources") or {}
-        think_items = list((sources.get("think_tank") or {}).get("artifacts") or [])
+        think_items = list((sources.get("subconscious") or {}).get("artifacts") or [])
         reasoning_items = list((sources.get("reasoning_trm") or {}).get("artifacts") or [])
 
         think_lines = self._summarize_artifacts(think_items, limit=4)
@@ -1757,7 +1757,7 @@ class Dexter:
             "trained_memories": trained_memories,
         }
 
-    def _parse_orchestrator_response(self, raw: str) -> tuple[str, Dict[str, Any]]:
+    def _parse_dexter_response(self, raw: str) -> tuple[str, Dict[str, Any]]:
         if not raw:
             return ("", {})
         parsed = extract_json(raw)
@@ -1772,7 +1772,7 @@ class Dexter:
             return
         try:
             await self.response_tank.publish(
-                source="orchestrator_internal",
+                source="dexter_internal",
                 content={"type": "internal_payload", "payload": internal, "timestamp": time.time()},
                 priority="medium",
             )
@@ -1780,54 +1780,54 @@ class Dexter:
             pass
 
         tasks = internal.get("tasks") or []
-        questions = internal.get("questions_for_think_tank") or []
+        questions = internal.get("questions_for_subconscious") or []
         mem_updates = internal.get("memory_updates") or []
         reasoning_requests = internal.get("reasoning_requests") or []
 
         if tasks:
             try:
                 await self.context_curator.stage_structured_artifact(
-                    source="orchestrator",
+                    source="dexter",
                     artifact_type="tasks",
                     payload=tasks,
                     confidence=0.8,
                     priority=6,
-                    metadata={"origin": "orchestrator"},
+                    metadata={"origin": "dexter"},
                 )
             except Exception:
                 pass
             try:
-                self.memory_ingestor.enqueue("orchestrator_tasks", json.dumps(tasks, ensure_ascii=False, default=str))
+                self.memory_ingestor.enqueue("dexter_tasks", json.dumps(tasks, ensure_ascii=False, default=str))
             except Exception:
                 pass
 
         if mem_updates:
             try:
-                self.memory_ingestor.enqueue("orchestrator_memory", json.dumps(mem_updates, ensure_ascii=False, default=str))
+                self.memory_ingestor.enqueue("dexter_memory", json.dumps(mem_updates, ensure_ascii=False, default=str))
             except Exception:
                 pass
 
         if questions:
-            asyncio.create_task(self._schedule_think_tank(user_msg, internal_questions=questions))
+            asyncio.create_task(self._schedule_subconscious(user_msg, internal_questions=questions))
 
         if reasoning_requests:
             for req in reasoning_requests:
-                asyncio.create_task(self._schedule_reasoning_trm(str(req), context={"origin": "orchestrator"}))
+                asyncio.create_task(self._schedule_reasoning_trm(str(req), context={"origin": "dexter"}))
 
-    async def _trigger_orchestrator_injection(self, trigger_type: str, trigger_content: str) -> str:
+    async def _trigger_dexter_injection(self, trigger_type: str, trigger_content: str) -> str:
         injection = await self.staged_context.trigger_and_inject(
             trigger_type=trigger_type,
             trigger_content=trigger_content,
         )
         self._last_injection_payload = injection
         if injection.get("sources"):
-            await self.orchestrator_bundle.merge_injection(injection)
+            await self.dexter_bundle.merge_injection(injection)
             self._print_internal("System", f"Staged context triggered: {len(injection['sources'])} sources")
             try:
                 self._print_internal("System", "Injection bundle:\n" + json.dumps(injection, ensure_ascii=False, default=str))
             except Exception:
                 pass
-        return self.orchestrator_bundle.format_for_llm()
+        return self.dexter_bundle.format_for_llm()
 
     async def _schedule_retrieval(self, query: str, trigger: str):
         if not query:
@@ -1850,25 +1850,25 @@ class Dexter:
         except Exception:
             pass
 
-    async def _schedule_think_tank(self, user_msg: str, internal_questions: Optional[List[str]] = None):
-        if not self.llm_think_tank.is_available():
+    async def _schedule_subconscious(self, user_msg: str, internal_questions: Optional[List[str]] = None):
+        if not self.llm_subconscious.is_available():
             return
         context = {
             "user_input": user_msg,
-            "bundle_context": self.think_tank_bundle.format_for_llm(),
+            "bundle_context": self.subconscious_bundle.format_for_llm(),
         }
         try:
-            insights = await self.llm_think_tank.broadcast(
+            insights = await self.llm_subconscious.broadcast(
                 context=context,
                 specific_questions=internal_questions,
                 timeout=8.0,
             )
         except Exception:
             return
-        # Add insights back into think-tank persistent bundle
+        # Add insights back into subconscious persistent bundle
         for insight in insights:
             try:
-                await self.think_tank_bundle.add_artifact(
+                await self.subconscious_bundle.add_artifact(
                     source=f"llm_{insight.source}",
                     artifact_type="llm_insight",
                     payload=insight.insights,
@@ -2021,7 +2021,7 @@ class Dexter:
         # Compact summary used for retrieval/aux pipelines.
         result_summary = f"{tool} -> {'SUCCESS' if success else 'FAIL'}"
 
-        # Enqueue for orchestrator reaction. The reactor will trigger injection + LLM call.
+        # Enqueue for dexter reaction. The reactor will trigger injection + LLM call.
         try:
             self._tool_result_queue.put_nowait(upstream_bundle)
         except Exception:
@@ -2149,7 +2149,7 @@ class Dexter:
                 ctype = content.get("type") if isinstance(content, dict) else None
 
                 try:
-                    # Append-only capture of ALL artifacts (user/tool/think-tank/reasoning/etc).
+                    # Append-only capture of ALL artifacts (user/tool/subconscious/reasoning/etc).
                     # This should never block the runtime; slow IO is handled by the bucket flush worker.
                     try:
                         self.bucket_manager.enqueue(
@@ -2194,7 +2194,7 @@ class Dexter:
                             "memory_needs": (insight.get("memory_needs") or [])[:3],
                         }
                         await self.context_curator.stage_structured_artifact(
-                            source="think_tank",
+                            source="subconscious",
                             artifact_type="llm_insight",
                             payload=payload,
                             confidence=float(insight.get("confidence") or 0.6),
@@ -2512,7 +2512,7 @@ class Dexter:
         max_backlog = int(cfg.get("max_backlog", 8))
         generate_when_empty = bool(cfg.get("generate_when_empty", True))
         gen_cfg = cfg.get("generation", {}) or {}
-        gen_slot = str(gen_cfg.get("slot", "orchestrator"))
+        gen_slot = str(gen_cfg.get("slot", "dexter"))
         gen_max = int(gen_cfg.get("max_objectives", 5))
         proactive_interval = float(proactive_cfg.get("proactive_interval", 300))
 
@@ -2734,16 +2734,16 @@ class Dexter:
 
     async def _tool_result_reactor(self) -> None:
         """
-        Background worker that turns tool results into orchestrator reactions.
+        Background worker that turns tool results into dexter reactions.
 
         Requirements:
-        - Tool results MUST trigger an orchestrator LLM call, otherwise Dexter won't react.
+        - Tool results MUST trigger a dexter LLM call, otherwise Dexter won't react.
         - Injection must include the tool result + the reason it was called (original intent).
 
         Strategy:
         - Debounce bursts of tool results and react once per batch.
-        - Trigger staged-context injection so results become available to the orchestrator.
-        - Call orchestrator with an internal event message that instructs it to respond
+        - Trigger staged-context injection so results become available to dexter.
+        - Call dexter with an internal event message that instructs it to respond
           to the user and/or schedule next tasks.
         """
         debounce_s = float(os.getenv("DEXTER_TOOL_RESULT_DEBOUNCE_SEC", "0.05") or "0.05")
@@ -2789,7 +2789,7 @@ class Dexter:
             injection_text = ""
             injection_payload = None
             try:
-                injection_text = await self._trigger_orchestrator_injection("tool_result", trigger_content)
+                injection_text = await self._trigger_dexter_injection("tool_result", trigger_content)
                 injection_payload = self._last_injection_payload
             except Exception:
                 injection_text = ""
@@ -2802,7 +2802,7 @@ class Dexter:
             except Exception:
                 chat_snapshot = list(self.chat_history)
 
-            # The orchestrator must react: explain what happened and decide what to do next.
+            # The dexter must react: explain what happened and decide what to do next.
             internal_event_msg = (
                 "INTERNAL EVENT: One or more tool calls just completed.\n"
                 "Use the injected context (tool results + metadata) to:\n"
@@ -2813,7 +2813,7 @@ class Dexter:
             )
 
             task = asyncio.create_task(
-                self._run_orchestrator_chat(
+                self._run_dexter_chat(
                     user_msg=internal_event_msg,
                     chat_history=chat_snapshot,
                     context_injection=injection_text,
@@ -2824,7 +2824,7 @@ class Dexter:
             )
             self._track_user_task(task)
 
-        # Stage user input into orchestrator + think tank bundles (fire-and-forget).
+        # Stage user input into dexter + subconscious bundles (fire-and-forget).
         injection_task: Optional[asyncio.Task] = None
         try:
             asyncio.create_task(
@@ -2838,7 +2838,7 @@ class Dexter:
                 )
             )
             asyncio.create_task(
-                self.think_tank_bundle.add_artifact(
+                self.subconscious_bundle.add_artifact(
                     source="user",
                     artifact_type="user_input",
                     payload=user_msg,
@@ -2847,12 +2847,12 @@ class Dexter:
                     metadata={"event": "user_input"},
                 )
             )
-            # Stage last carry state and current runtime status for orchestrator visibility.
+            # Stage last carry state and current runtime status for dexter visibility.
             last_carry = self.state.get("carry_state")
             if last_carry:
                 asyncio.create_task(
                     self.staged_context.stage_artifact(
-                        source="orchestrator",
+                        source="dexter",
                         artifact_type="carry_state",
                         payload=last_carry,
                         confidence=0.9,
@@ -2870,7 +2870,7 @@ class Dexter:
                     metadata={"event": "runtime_status"},
                 )
             )
-            injection_task = asyncio.create_task(self._trigger_orchestrator_injection("user_input", user_msg))
+            injection_task = asyncio.create_task(self._trigger_dexter_injection("user_input", user_msg))
         except Exception:
             pass
 
@@ -2880,12 +2880,12 @@ class Dexter:
         except Exception:
             pass
         asyncio.create_task(self._schedule_retrieval(user_msg, "user_input"))
-        asyncio.create_task(self._schedule_think_tank(user_msg))
+        asyncio.create_task(self._schedule_subconscious(user_msg))
         asyncio.create_task(self._schedule_reasoning_trm(user_msg, context={"trigger": "user_input"}))
 
         # NOTE: We intentionally do not "fast-path" user input directly to Forge.
-        # The orchestrator must always see and respond to the user first; tool execution can
-        # be requested via the orchestrator's internal payload and run asynchronously.
+        # Dexter must always see and respond to the user first; tool execution can
+        # be requested via dexter's internal payload and run asynchronously.
 
 
 
@@ -2911,7 +2911,7 @@ class Dexter:
                 pass
 
         task = asyncio.create_task(
-            self._run_orchestrator_chat(
+            self._run_dexter_chat(
                 user_msg=user_msg,
                 chat_history=chat_snapshot,
                 context_injection=injection_text,
@@ -2923,7 +2923,7 @@ class Dexter:
         self._track_user_task(task)
         return
 
-    async def _run_orchestrator_chat(
+    async def _run_dexter_chat(
         self,
         user_msg: str,
         chat_history: List[Dict[str, str]],
@@ -2932,18 +2932,18 @@ class Dexter:
         fast: bool = False,
         injection_payload: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Run the orchestrator LLM call without blocking other user inputs."""
+        """Run the dexter LLM call without blocking other user inputs."""
         start = time.time()
         raw_response = await self.reasoning.chat_response(
             user_msg,
             chat_history=chat_history,
-            slot=self.conversation_cfg.get("chat_slot", "orchestrator"),
+            slot=self.conversation_cfg.get("chat_slot", "dexter"),
             pending_goal=None,
             fast=fast,
             context_injection=context_injection,
         )
         duration_ms = (time.time() - start) * 1000.0
-        user_response, internal = self._parse_orchestrator_response(raw_response)
+        user_response, internal = self._parse_dexter_response(raw_response)
         if not user_response:
             user_response = raw_response
 
@@ -2968,13 +2968,13 @@ class Dexter:
             "chat_response",
             {
                 "chat": user_response,
-                "think_tank_reasoning": internal_panel,
+                "subconscious_reasoning": internal_panel,
                 "forge_intent": internal.get("tasks") or [],
                 "message_id": msg_id,
             },
         )
         asyncio.create_task(self._dispatch_internal_payload(internal, user_msg))
-        # Fire-and-forget: send only orchestrator-declared tasks to Forge.
+        # Fire-and-forget: send only dexter-declared tasks to Forge.
         try:
             intents = internal.get("tasks") or []
             if intents:
@@ -3002,16 +3002,16 @@ class Dexter:
                 cmd = user_msg.strip()
                 if cmd.lower() == "/m":
                     # Interactive picker runs in the input thread; never block the event loop.
-                    await asyncio.to_thread(self._ui_pick_orchestrator_model)
+                    await asyncio.to_thread(self._ui_pick_dexter_model)
                     continue
-                if cmd.lower() == "/mtank":
-                    picked = await asyncio.to_thread(self._ui_pick_think_tank_model)
+                if cmd.lower() == "/msubconscious":
+                    picked = await asyncio.to_thread(self._ui_pick_subconscious_model)
                     if picked:
                         slot_name, model = picked
-                        if self._apply_think_tank_model(slot_name, model):
+                        if self._apply_subconscious_model(slot_name, model):
                             # Restart to apply new model/provider config into active advisors.
-                            if self._think_tank_reload_task is None or self._think_tank_reload_task.done():
-                                self._think_tank_reload_task = asyncio.create_task(self._restart_think_tank())
+                            if self._subconscious_reload_task is None or self._subconscious_reload_task.done():
+                                self._subconscious_reload_task = asyncio.create_task(self._restart_subconscious())
                     continue
                 if cmd.lower().startswith("/results"):
                     parts = cmd.split(None, 1)

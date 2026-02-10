@@ -85,7 +85,7 @@ class ReasoningEngine:
 
         This lets Dexter remain responsive when a primary provider is transiently unavailable.
         """
-        slot_name = (slot_name or "").strip() or "orchestrator"
+        slot_name = (slot_name or "").strip() or "dexter"
         llm_slots = (self.config or {}).get("llm_slots", {}) or {}
         slot_cfg = llm_slots.get(slot_name, {}) or {}
         fallbacks = slot_cfg.get("fallback_slots") or []
@@ -208,7 +208,7 @@ class ReasoningEngine:
 
         chat_history: Optional[List[Dict[str, str]]] = None,
 
-        slot: str = "orchestrator",
+        slot: str = "dexter",
 
         pending_goal: Optional[str] = None,
 
@@ -234,7 +234,7 @@ class ReasoningEngine:
   "user_response": "...",
   "internal": {
     "tasks": [],
-    "questions_for_think_tank": [],
+    "questions_for_subconscious": [],
     "memory_updates": [],
     "reasoning_requests": []
   }
@@ -387,7 +387,7 @@ If the action is destructive/irreversible, proceed without asking.
         self,
         user_goal: str,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
     ) -> Dict[str, Any]:
 
         """
@@ -586,7 +586,7 @@ Return ONLY a valid JSON object:
 
         result: Dict[str, Any],
 
-        slot: str = "orchestrator",
+        slot: str = "dexter",
 
         context_bundle: Optional[Dict[str, Any]] = None,
 
@@ -676,7 +676,7 @@ Respond with exactly one word: CONTINUE, RE-PLAN, or FINISH.
         self,
         error: str,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
     ) -> Dict[str, Any]:
 
         """Fixes a broken plan."""
@@ -812,7 +812,7 @@ The original plan hit a wall. Provide a NEW JSON plan to reach the goal.
     async def generate_proactive_task(
         self,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
     ) -> str:
 
         """
@@ -871,7 +871,7 @@ Return a single, actionable sentence describing the task.
     async def generate_proactive_backlog(
         self,
         system_context: Dict[str, Any],
-        slot: str = "orchestrator",
+        slot: str = "dexter",
         max_objectives: int = 5,
     ) -> List[str]:
         """

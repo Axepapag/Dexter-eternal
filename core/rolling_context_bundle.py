@@ -330,7 +330,7 @@ class StagedContextBundle:
         self._staged: Dict[str, List[Dict[str, Any]]] = {
             "memory_trm": [],
             "reasoning_trm": [],
-            "think_tank": [],
+            "subconscious": [],
             "tool_results": [],
             "channel_messages": [],
         }
@@ -339,7 +339,7 @@ class StagedContextBundle:
         self._token_budgets = {
             "memory_trm": 500,
             "reasoning_trm": 400,
-            "think_tank": 600,
+            "subconscious": 600,
             "tool_results": 800,
             "channel_messages": 400,
         }
