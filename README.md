@@ -1,5 +1,7 @@
 # Dexter AI System - Production Ready
 
+> 📊 **NEW**: See [COMPREHENSIVE_ANALYSIS.md](./COMPREHENSIVE_ANALYSIS.md) for a detailed analysis of capabilities, architecture, code quality, and recommendations.
+
 ## 🎯 System Status: OPERATIONAL
 - **Memory System**: Fully operational with database persistence
 - **Tool Execution**: Bulletproof feedback loops  
@@ -89,8 +91,11 @@ python advanced_launcher.py --status
 
 ## 📚 Documentation
 
+- **📊 Comprehensive Analysis**: [COMPREHENSIVE_ANALYSIS.md](./COMPREHENSIVE_ANALYSIS.md) - **START HERE** for visitors
 - **Quick Start**: `LAUNCHER_README.md`
 - **System Overview**: `docs/README.md`
+- **Code Quality**: `CODE_AUDIT_SUMMARY.md`
+- **Architecture**: `TRM_ARCHITECTURE_MANDATE.md`
 - **Cleanup Report**: `REPOSITORY_CLEANUP_REPORT.md`
 - **Historical Context**: `docs/legacy/`
 
