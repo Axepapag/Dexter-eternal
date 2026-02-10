@@ -19,7 +19,7 @@
 | Dependencies | 18 packages | ✅ Lean |
 | Test Coverage | 0% | ❌ Critical Gap |
 | Documentation | 15+ MD files | ✅ Comprehensive |
-| Code Quality Score | 5/10 | ⚠️ Needs Work |
+| Code Quality Score | 6.1/10 | ⚠️ Needs Work |
 
 ---
 
@@ -544,7 +544,7 @@ Total Lines: ~18,000
 **Production Dependencies** (18 packages):
 - FastAPI, uvicorn (API)
 - PyTorch, numpy (ML)
-- aiosqlite, sqlite3 (persistence)
+- sqlite3 (persistence - **needs migration to aiosqlite**)
 - Playwright (automation)
 - Edge-TTS (voice)
 
