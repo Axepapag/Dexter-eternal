@@ -398,13 +398,20 @@ For investment discussions, partnerships, or technical deep-dives:
 
 ## 📄 License & Legal
 
-This project is currently in active development. License terms are being finalized to support:
-- Community validation and contribution
-- Rapid market adoption and ecosystem development
-- Future dual-licensing model (open-core strategy)
-- Patent applications for core innovations
+**Dexter-Eternal is proprietary software.** All rights reserved.
 
-**Note for Investors**: The open-core approach enables both community-driven innovation and commercial opportunities through enterprise licensing.
+This software is protected by copyright and trade secret law. See the [LICENSE](LICENSE) file for complete terms and conditions.
+
+### Key Points:
+- **Proprietary**: All intellectual property rights are reserved by Axepapag
+- **No Unauthorized Use**: Commercial use, distribution, or modification requires explicit written permission
+- **Investor Access**: Available for due diligence under NDA
+- **Future Licensing**: Potential dual-licensing model (open-core strategy) under consideration
+- **Patent Protection**: Core innovations may be subject to patent applications
+
+**For Licensing Inquiries**: Contact through GitHub Issues (tag: `business-inquiry` or `licensing`) or Discussions.
+
+**Note for Investors**: The proprietary license protects core IP while we evaluate commercial licensing models and partnership opportunities.
 
 ---
 
